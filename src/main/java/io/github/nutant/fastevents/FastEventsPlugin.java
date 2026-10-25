@@ -54,7 +54,8 @@ public final class FastEventsPlugin implements ILaunchPluginService {
             addURL.invoke(system, jar);
             if (visible(system)) {
                 exposed = true;
-                LOGGER.info("[FastEvents] exposed {} to the game class loader", jar);
+                LOGGER.info("[FastEvents] exposed {} to the game class loader (plugin loader: {}, system loader: {})",
+                    jar, FastEventsPlugin.class.getClassLoader(), system.getClass().getName());
             } else {
                 LOGGER.error("[FastEvents] could not expose {} to the game class loader, this install is inactive; "
                         + "put the jar on the launch classpath instead", jar);
