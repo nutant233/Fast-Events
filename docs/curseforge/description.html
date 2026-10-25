@@ -14,12 +14,15 @@ being modified.</p>
     <tr><th>Minecraft</th><th>Loader</th><th>File</th></tr>
   </thead>
   <tbody>
-    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
     <tr><td>1.21.1</td><td>NeoForge 21.1.x</td><td><code>fastevents-1.21-*.jar</code></td></tr>
+    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
+    <tr><td>1.19.2</td><td>Forge 43.x</td><td><code>fastevents-1.19-*.jar</code></td></tr>
+    <tr><td>1.18.2</td><td>Forge 40.x</td><td><code>fastevents-1.18-*.jar</code></td></tr>
+    <tr><td>1.16.5</td><td>Forge 36.x</td><td><code>fastevents-1.16-*.jar</code></td></tr>
   </tbody>
 </table>
 
-<p>One jar per game version. Nothing else is required.</p>
+<p>One jar per game version, and no other versions are touched. Nothing else is required.</p>
 
 <h2>The problem it solves</h2>
 
@@ -50,8 +53,24 @@ it. On a big modpack most of the per-tick event cost is exactly this overhead, n
 
 <h2>Numbers</h2>
 
-<p>Nanoseconds per post, single thread, 8 listeners on one event class, Java 21. Lower is better. Measured with the
-benchmark harness in the repository.</p>
+<p>Nanoseconds per post, single thread, 8 <code>@SubscribeEvent</code> listeners on one event class, lower is better.
+Every version was measured with the benchmark harness in the repository, on the event bus that version actually
+ships.</p>
+
+<table>
+  <thead>
+    <tr><th>Minecraft / loader</th><th>vanilla</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1.21.1 / NeoForge 21.1 (event bus 8.0)</td><td>31.2 ns</td><td><strong>8.8 ns</strong></td><td>3.5&times;</td></tr>
+    <tr><td>1.20.1 / Forge 47.4 (event bus 6.2, Java 21)</td><td>49.6 ns</td><td><strong>9.3 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td>1.19.2 / Forge 43.5 (event bus 6.0, Java 21)</td><td>50.5 ns</td><td><strong>9.5 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td>1.18.2 / Forge 40.3 (event bus 5.0, Java 21)</td><td>52.2 ns</td><td><strong>9.3 ns</strong></td><td>5.6&times;</td></tr>
+    <tr><td>1.16.5 / Forge 36.2 (event bus 4.0, Java 8)</td><td>89.3 ns</td><td><strong>18.0 ns</strong></td><td>5.0&times;</td></tr>
+  </tbody>
+</table>
+
+<p>The per-listener-kind breakdown, on the two most common setups:</p>
 
 <table>
   <thead>
@@ -86,7 +105,8 @@ thousands of times per tick across a pack.</p>
 <h2>Install</h2>
 
 <ol>
-  <li>Install Minecraft 1.20.1 with Forge 47.x, or Minecraft 1.21.1 with NeoForge 21.1.x.</li>
+  <li>Install Minecraft 1.21.1 with NeoForge 21.1.x, 1.20.1 with Forge 47.x, 1.19.2 with Forge 43.x, 1.18.2 with
+      Forge 40.x, or 1.16.5 with Forge 36.x.</li>
   <li>Put the matching jar into your <code>mods/</code> folder. (It also works on the launcher classpath.)</li>
   <li>That's it. No config file, no dependencies, nothing to set up.</li>
 </ol>
@@ -105,22 +125,24 @@ join do not need it (but get a small gain if they have it too).</p>
   <tbody>
     <tr><td><code>-Dfastevents.guard=false</code></td><td>Disable the "skip <code>new Event()</code> when nobody listens" shortcut.</td></tr>
     <tr><td><code>-Dfastevents.audit=true</code></td><td>Verify the cached listener array on every post and log late registrations.</td></tr>
-    <tr><td><code>-Dfastevents.diag=true</code></td><td>1.20.1 only: log listeners registered through a path that is not rewritten.</td></tr>
+    <tr><td><code>-Dfastevents.diag=true</code></td><td>1.21.1 only: log listeners registered through a path that is not rewritten.</td></tr>
   </tbody>
 </table>
 
 <h2>Compatibility</h2>
 
 <ul>
-  <li><strong>Forge 47.x</strong> (1.20.1, event bus 6.0.x / 6.2.x) and <strong>NeoForge 21.1.x</strong> (1.21.1, event
-      bus 8.0.x). Other 1.20.x / 1.21.x builds are not supported.</li>
+  <li><strong>NeoForge 21.1.x</strong> (1.21.1, event bus 8.0.x) and <strong>Forge 47.x / 43.x / 40.x / 36.x</strong>
+      (1.20.1 / 1.19.2 / 1.18.2 / 1.16.5, event bus 6.x / 6.x / 5.x / 4.x). Other builds of those game versions are
+      not supported.</li>
+  <li>The 1.16.5 build is compiled to Java 8 bytecode, so it runs on the Java 8 that the vanilla launcher uses.</li>
   <li>No Mixin, no access transformers, no coremod entry point that other performance mods fight over. It is a launch
       plugin that only replaces <code>post</code>/<code>addListener</code> call sites.</li>
   <li>Does not modify Forge, NeoForge or the event bus classes themselves, and does not touch another mod's listeners
       or registration data.</li>
   <li>Safe to remove at any time &mdash; nothing is written to your world or configs.</li>
   <li>Not accelerated, and left on the vanilla path (so there is no behavioural difference): on 1.21,
-      <code>post(EventPriority, Event)</code>; on both versions, post call sites whose bus reference cannot be
+      <code>post(EventPriority, Event)</code>; on every version, post call sites whose bus reference cannot be
       resolved at load time.</li>
 </ul>
 

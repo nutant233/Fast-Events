@@ -74,4 +74,14 @@ public final class Gen0 implements Dispatcher {
 * 客户端与服务端通用。
 * 只改写调用点；不使用 Mixin，不修改 NeoForge 与 event bus 的任何类。
 
-Minecraft 1.20.1 / Forge 47 的版本在 `1.20` 分支。
+## 版本
+
+每个 Minecraft 版本一个分支，代码相同，只是目标总线和加载器不同。
+
+| Minecraft | 加载器 | 分支 |
+|---|---|---|
+| 1.21.1 | NeoForge 21.1.x | `1.21` |
+| 1.20.1 | Forge 47.x | `1.20` |
+| 1.19.2 | Forge 43.x | `1.19` |
+| 1.18.2 | Forge 40.x | `1.18` |
+| 1.16.5 | Forge 36.x | `1.16` |

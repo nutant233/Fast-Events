@@ -35,20 +35,20 @@ Rewrites every event-bus post into a generated, fully inlined dispatcher: 8 list
 
 ## Files
 
-One jar per game version. Both are the same mod, different branch of the source tree.
+One jar per game version. They are the same mod, one branch of the source tree each.
 
-| | 1.20.1 build | 1.21.1 build |
-|---|---|---|
-| File to upload | `fastevents-1.20-26.10.1.jar` | `fastevents-1.21-26.10.1.jar` |
-| Display name | `Fast-Events 1.20-26.10.1 — Forge 1.20.1` | `Fast-Events 1.21-26.10.1 — NeoForge 1.21.1` |
-| Game version | `1.20.1` | `1.21.1` |
-| Mod loader | `Forge` | `NeoForge` |
-| Release type | Release | Release |
-| Additional files | — | — |
-| Changelog | below | below |
+| File to upload | Display name | Game version | Mod loader | Release type |
+|---|---|---|---|---|
+| `fastevents-1.21-26.10.1.jar` | `Fast-Events 1.21-26.10.1 — NeoForge 1.21.1` | `1.21.1` | `NeoForge` | Release |
+| `fastevents-1.20-26.10.1.jar` | `Fast-Events 1.20-26.10.1 — Forge 1.20.1` | `1.20.1` | `Forge` | Release |
+| `fastevents-1.19-26.10.1.jar` | `Fast-Events 1.19-26.10.1 — Forge 1.19.2` | `1.19.2` | `Forge` | Release |
+| `fastevents-1.18-26.10.1.jar` | `Fast-Events 1.18-26.10.1 — Forge 1.18.2` | `1.18.2` | `Forge` | Release |
+| `fastevents-1.16-26.10.1.jar` | `Fast-Events 1.16-26.10.1 — Forge 1.16.5` | `1.16.5` | `Forge` | Release |
 
-Both files should be selected on the default / featured list; if CurseForge asks for a "primary" file, pick the 1.21.1
-one (newest game version).
+Each jar's changelog is below. Select every file on the default / featured list; if CurseForge asks for a "primary"
+file, pick the 1.21.1 one (newest game version).
+
+The 1.16.5 jar is compiled to Java 8 bytecode, so it loads on the Java 8 that the vanilla launcher ships.
 
 ## Changelog — 1.20-26.10.1 (Forge 1.20.1)
 
@@ -87,6 +87,57 @@ First CurseForge release, ported to NeoForge 21.1 and `net.neoforged:bus` 8.0.5.
 * Measured (8 listeners, Java 21): `@SubscribeEvent` 31.2 → 8.8 ns, consumer listeners 19.0 → 8.8 ns per post.
 ```
 
+## Changelog — 1.19-26.10.1 (Forge 1.19.2)
+
+```markdown
+First CurseForge release for Minecraft 1.19.2 / Forge 43.x (`net.minecraftforge:eventbus` 6.0.3).
+
+* Every `post` call site on `MinecraftForge.EVENT_BUS` now dispatches through a generated class: one field and one call
+  instruction per listener, so the JIT inlines straight into the listener body instead of going through the
+  megamorphic `listeners[i].invoke(event)` loop.
+* Event objects are no longer constructed when the event class has no listeners.
+* Priority markers are inlined; the `isCanceled()` check is dropped for non-cancelable events.
+* `addListener` / `addGenericListener` / `unregister` call sites are rewritten for cache invalidation only.
+* Verified with the bundled harness against eventbus 6.0.3 and 6.0.5: listener order, cancellation, generic filters,
+  late registration and wide listener arrays.
+* Measured (8 listeners, Java 21): `@SubscribeEvent` 50.5 → 9.5 ns, `addListener(this::x)` 52.4 → 7.9 ns,
+  consumer listeners 20.6 → 5.9 ns, generic listeners 49.7 → 13.8 ns per post.
+```
+
+## Changelog — 1.18-26.10.1 (Forge 1.18.2)
+
+```markdown
+First CurseForge release for Minecraft 1.18.2 / Forge 40.x (`net.minecraftforge:eventbus` 5.0.3).
+
+* Every `post` call site on `MinecraftForge.EVENT_BUS` now dispatches through a generated class: one field and one call
+  instruction per listener, so the JIT inlines straight into the listener body instead of going through the
+  megamorphic `listeners[i].invoke(event)` loop.
+* Event objects are no longer constructed when the event class has no listeners.
+* Priority markers are inlined; the `isCanceled()` check is dropped for non-cancelable events.
+* `addListener` / `addGenericListener` / `unregister` call sites are rewritten for cache invalidation only.
+* Verified with the bundled harness against eventbus 5.0.3: listener order, cancellation, generic filters, late
+  registration and wide listener arrays.
+* Measured (8 listeners, Java 21): `@SubscribeEvent` 52.2 → 9.3 ns, `addListener(this::x)` 51.2 → 7.8 ns,
+  consumer listeners 20.2 → 6.1 ns, generic listeners 49.1 → 12.7 ns per post.
+```
+
+## Changelog — 1.16-26.10.1 (Forge 1.16.5)
+
+```markdown
+First CurseForge release for Minecraft 1.16.5 / Forge 36.x (`net.minecraftforge:eventbus` 4.0.0).
+
+* Every `post` call site on `MinecraftForge.EVENT_BUS` now dispatches through a generated class: one field and one call
+  instruction per listener, so the JIT inlines straight into the listener body instead of going through the
+  megamorphic `listeners[i].invoke(event)` loop.
+* Event objects are no longer constructed when the event class has no listeners.
+* Priority markers are inlined; the `isCanceled()` check is dropped for non-cancelable events.
+* `addListener` / `addGenericListener` / `unregister` call sites are rewritten for cache invalidation only.
+* Compiled to Java 8 bytecode, because that is the runtime 1.16.5 uses; verified on a real Java 8 JVM as well as with
+  the bundled harness against eventbus 4.0.0 (listener order, cancellation, late registration, private buses).
+* Measured (8 listeners, Java 8): `@SubscribeEvent` 89.3 → 18.0 ns, consumer listeners 32.2 → 12.2 ns,
+  128 listeners 932.8 → 216.3 ns, 512 listeners 4372.7 → 873.9 ns per post.
+```
+
 ## Description
 
 Paste `description.html` into the description editor (English — recommended as the project's main description).
@@ -101,8 +152,10 @@ survives as HTML embedded in markdown.
 
 ## Optional gallery image
 
-`bench.png` is a two-panel bar chart of the numbers (1.20.1 on the left, 1.21.1 on the right, vanilla vs Fast-Events).
-Upload it as an image in the description where the "Numbers" section is, or into the project gallery.
+`bench.png` is a two-panel bar chart of the numbers (every version side by side on the left, the 1.20.1 listener-kind breakdown on the right, vanilla vs Fast-Events).
+Upload it as an image in the description where the "Numbers" section is, or into the project gallery. The 1.19.2,
+1.18.2 and 1.16.5 numbers are in the description's version table; `make-chart.ps1` regenerates the image if you want
+the older versions plotted too.
 
 ## Icon
 
@@ -115,8 +168,7 @@ square.
 
 1. Create the project with the values above, upload `icon-400.png`.
 2. Paste `description.html`, set source/issues URLs, choose the LGPL 3.0 license.
-3. Upload `fastevents-1.21-26.10.1.jar`: game version 1.21.1, loader NeoForge, release, changelog above.
-4. Upload `fastevents-1.20-26.10.1.jar`: game version 1.20.1, loader Forge, release, its changelog.
-5. Add a `LICENSE` file (LGPL-3.0 text) to the repository — the mod metadata declares LGPL 3.0 but the source tree does
+3. Upload all five jars with the game version / loader / changelog from the table above.
+4. Add a `LICENSE` file (LGPL-3.0 text) to the repository — the mod metadata declares LGPL 3.0 but the source tree does
    not ship the license text yet, and CurseForge reviewers follow that link.
-6. Check the rendered page: tables, the two `pre` blocks and the entities should survive the editor round trip.
+5. Check the rendered page: tables, the two `pre` blocks and the entities should survive the editor round trip.

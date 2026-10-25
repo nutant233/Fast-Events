@@ -12,12 +12,15 @@
     <tr><th>Minecraft</th><th>加载器</th><th>文件</th></tr>
   </thead>
   <tbody>
-    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
     <tr><td>1.21.1</td><td>NeoForge 21.1.x</td><td><code>fastevents-1.21-*.jar</code></td></tr>
+    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
+    <tr><td>1.19.2</td><td>Forge 43.x</td><td><code>fastevents-1.19-*.jar</code></td></tr>
+    <tr><td>1.18.2</td><td>Forge 40.x</td><td><code>fastevents-1.18-*.jar</code></td></tr>
+    <tr><td>1.16.5</td><td>Forge 36.x</td><td><code>fastevents-1.16-*.jar</code></td></tr>
   </tbody>
 </table>
 
-<p>每个游戏版本一个 jar，除此之外不需要别的东西。</p>
+<p>每个游戏版本一个 jar，其它版本不会加载。除此之外不需要别的东西。</p>
 
 <h2>它解决什么问题</h2>
 
@@ -44,7 +47,23 @@
 
 <h2>数据</h2>
 
-<p>单位为「每次 post 的纳秒」，单线程，同一个事件类上 8 个监听器，Java 21，越低越好。数据由仓库内自带的基准测试生成。</p>
+<p>单位为「每次 post 的纳秒」，单线程，同一个事件类上 8 个 <code>@SubscribeEvent</code> 监听器，越低越好。每个版本都在该版本
+实际使用的总线上、用仓库自带的基准测试测得。</p>
+
+<table>
+  <thead>
+    <tr><th>Minecraft / 加载器</th><th>原生</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1.21.1 / NeoForge 21.1（event bus 8.0）</td><td>31.2 ns</td><td><strong>8.8 ns</strong></td><td>3.5&times;</td></tr>
+    <tr><td>1.20.1 / Forge 47.4（event bus 6.2，Java 21）</td><td>49.6 ns</td><td><strong>9.3 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td>1.19.2 / Forge 43.5（event bus 6.0，Java 21）</td><td>50.5 ns</td><td><strong>9.5 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td>1.18.2 / Forge 40.3（event bus 5.0，Java 21）</td><td>52.2 ns</td><td><strong>9.3 ns</strong></td><td>5.6&times;</td></tr>
+    <tr><td>1.16.5 / Forge 36.2（event bus 4.0，Java 8）</td><td>89.3 ns</td><td><strong>18.0 ns</strong></td><td>5.0&times;</td></tr>
+  </tbody>
+</table>
+
+<p>按监听器类型拆开看，两个最常见环境的数据：</p>
 
 <table>
   <thead>
@@ -78,7 +97,8 @@
 <h2>安装</h2>
 
 <ol>
-  <li>安装 Minecraft 1.20.1 + Forge 47.x，或 Minecraft 1.21.1 + NeoForge 21.1.x。</li>
+  <li>安装 Minecraft 1.21.1 + NeoForge 21.1.x、1.20.1 + Forge 47.x、1.19.2 + Forge 43.x、1.18.2 + Forge 40.x，
+      或 1.16.5 + Forge 36.x。</li>
   <li>把对应的 jar 放进 <code>mods/</code>。（放在启动器 classpath 上也可以。）</li>
   <li>就这样。没有配置文件，没有依赖，不需要任何额外设置。</li>
 </ol>
@@ -96,20 +116,21 @@
   <tbody>
     <tr><td><code>-Dfastevents.guard=false</code></td><td>关闭「没人监听就跳过 <code>new Event()</code>」的短路。</td></tr>
     <tr><td><code>-Dfastevents.audit=true</code></td><td>每次 post 核对缓存的监听器数组，并记录晚注册。</td></tr>
-    <tr><td><code>-Dfastevents.diag=true</code></td><td>仅 1.20.1：记录那些经过「未被改写的路径」注册的监听器。</td></tr>
+    <tr><td><code>-Dfastevents.diag=true</code></td><td>仅 1.21.1：记录那些经过「未被改写的路径」注册的监听器。</td></tr>
   </tbody>
 </table>
 
 <h2>兼容性</h2>
 
 <ul>
-  <li><strong>Forge 47.x</strong>（1.20.1，event bus 6.0.x / 6.2.x）与 <strong>NeoForge 21.1.x</strong>（1.21.1，event bus
-      8.0.x）。其它 1.20.x / 1.21.x 版本不保证。</li>
+  <li><strong>NeoForge 21.1.x</strong>（1.21.1，event bus 8.0.x）与 <strong>Forge 47.x / 43.x / 40.x / 36.x</strong>
+      （1.20.1 / 1.19.2 / 1.18.2 / 1.16.5，event bus 6.x / 6.x / 5.x / 4.x）。这些游戏版本的其它构建不保证。</li>
+  <li>1.16.5 版编译为 Java 8 字节码，原版启动器自带的 Java 8 即可运行。</li>
   <li>不使用 Mixin，不使用 access transformer，也没有会和其它性能模组抢的 coremod 入口。它是一个 launch plugin，只替换
       <code>post</code>/<code>addListener</code> 调用点。</li>
   <li>不修改 Forge、NeoForge 或 event bus 自身的类，也不碰其它模组的监听器与注册数据。</li>
   <li>随时可以删除 &mdash;&mdash; 它不会往存档或配置里写任何东西。</li>
-  <li>不加速、仍走原生路径（因此不存在行为差异）：1.21 的 <code>post(EventPriority, Event)</code>；两个版本中总线引用在加载期
+  <li>不加速、仍走原生路径（因此不存在行为差异）：1.21 的 <code>post(EventPriority, Event)</code>；所有版本中总线引用在加载期
       无法确定的 <code>post</code> 调用点。</li>
 </ul>
 

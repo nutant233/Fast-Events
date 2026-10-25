@@ -77,4 +77,14 @@ Optional system properties:
 * Client and server.
 * Only replaces call sites; no mixins, no changes to NeoForge or the event bus.
 
-The Minecraft 1.20.1 / Forge 47 build lives on the `1.20` branch.
+## Versions
+
+One branch per Minecraft version; the code is the same, only the bus and loader it targets differ.
+
+| Minecraft | Loader | Branch |
+|---|---|---|
+| 1.21.1 | NeoForge 21.1.x | `1.21` |
+| 1.20.1 | Forge 47.x | `1.20` |
+| 1.19.2 | Forge 43.x | `1.19` |
+| 1.18.2 | Forge 40.x | `1.18` |
+| 1.16.5 | Forge 36.x | `1.16` |

@@ -10,7 +10,7 @@ $dash = [string][char]0x2014
 $middot = [string][char]0x00B7
 
 $W = 1000
-$H = 570
+$H = 640
 $bmp = New-Object System.Drawing.Bitmap $W, $H, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -33,7 +33,7 @@ $grey = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(2
 $vanillaColour = [System.Drawing.Color]::FromArgb(255, 71, 85, 105)
 
 $g.DrawString(('Fast-Events ' + $dash + ' nanoseconds per event post, 8 listeners, lower is better'), $fontTitle, $white, 34, 20)
-$g.DrawString('Java 21, single thread, measured with the repository benchmark harness', $fontNote, $grey, 36, 54)
+$g.DrawString('Java 21 unless stated, single thread, measured with the repository''s benchmark harness', $fontNote, $grey, 36, 54)
 
 $barMax = 330.0
 $maxScale = 60.0
@@ -72,31 +72,33 @@ function Draw-Panel([string]$title, [int]$x, [array]$rows, [string]$note) {
         $g.FillRectangle($fastBar, $x, ($y + 20 + $h + 6), $wf, $h)
         $fastBar.Dispose()
 
-        $g.DrawString(("{0} ns" -f $vanilla), $fontValue, $grey, ($x + $wv + 8), ($y + 19))
-        $g.DrawString(("{0} ns" -f $fast), $fontValue, $white, ($x + $wf + 8), ($y + 19 + $h + 6))
+        $g.DrawString(("{0:0.0} ns" -f $vanilla), $fontValue, $grey, ($x + $wv + 8), ($y + 19))
+        $g.DrawString(("{0:0.0} ns" -f $fast), $fontValue, $white, ($x + $wf + 8), ($y + 19 + $h + 6))
 
         $ratio = [math]::Round($vanilla / $fast, 1)
         $g.DrawString(($times + $ratio), $fontValue, $white, ($x + $barMax + 46), ($y + 20 + $h + 4))
 
-        $y += 82
+        $y += 76
     }
 
     $g.DrawString($note, $fontNote, $grey, $x, $y)
 }
 
-$rows120 = @(
+$perVersion = @(
+    ,@('1.21.1 / NeoForge 21.1', 31.2, 8.8)
+    ,@('1.20.1 / Forge 47.4', 49.6, 9.3)
+    ,@('1.19.2 / Forge 43.5', 50.5, 9.5)
+    ,@('1.18.2 / Forge 40.3', 52.2, 9.3)
+    ,@('1.16.5 / Forge 36.2 (Java 8)', 89.3, 18.0)
+)
+$byKind = @(
     ,@('@SubscribeEvent', 49.6, 9.3)
     ,@('addListener(this::x), 8 refs', 46.4, 8.2)
     ,@('addListener(consumer)', 15.7, 5.8)
     ,@('generic listeners', 52.2, 12.4)
 )
-$rows121 = @(
-    ,@('@SubscribeEvent', 31.2, 8.8)
-    ,@('addListener(consumer)', 19.0, 8.8)
-)
-
-Draw-Panel 'Minecraft 1.20.1 / Forge 47.4' 36 $rows120 'Wider arrays: 128 listeners 201 -> 88 ns, 512 listeners 1090 -> 556 ns'
-Draw-Panel 'Minecraft 1.21.1 / NeoForge 21.1' 520 $rows121 'With no listeners the event object is not constructed at all'
+Draw-Panel '8 @SubscribeEvent listeners, per version' 36 $perVersion 'On 1.16.5: 128 listeners 933 -> 216 ns, 512 listeners 4373 -> 874 ns'
+Draw-Panel 'Minecraft 1.20.1, by listener kind' 520 $byKind 'With no listeners the event object is not constructed at all'
 
 $g.DrawString(('Fast-Events ' + $middot + ' LGPL 3.0 ' + $middot + ' github.com/nutant233/Fast-Events'), $fontNote, $grey, 36, ($H - 30))
 $g.Dispose()
