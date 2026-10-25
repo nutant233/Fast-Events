@@ -134,8 +134,8 @@ First CurseForge release for Minecraft 1.16.5 / Forge 36.x (`net.minecraftforge:
 * `addListener` / `addGenericListener` / `unregister` call sites are rewritten for cache invalidation only.
 * Compiled to Java 8 bytecode, because that is the runtime 1.16.5 uses; verified on a real Java 8 JVM as well as with
   the bundled harness against eventbus 4.0.0 (listener order, cancellation, late registration, private buses).
-* Measured (8 listeners, Java 8): `@SubscribeEvent` 89.3 → 18.0 ns, consumer listeners 32.2 → 12.2 ns,
-  128 listeners 932.8 → 216.3 ns, 512 listeners 4372.7 → 873.9 ns per post.
+* Measured (8 listeners, Java 8): `@SubscribeEvent` 92.5 → 15.4 ns, consumer listeners 34.7 → 12.5 ns,
+  128 listeners 794 → 201 ns, 512 listeners 3465 → 493 ns per post.
 ```
 
 ## Description
