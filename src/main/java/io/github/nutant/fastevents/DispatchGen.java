@@ -1,184 +1,74 @@
 package io.github.nutant.fastevents;
 
-import net.minecraftforge.eventbus.api.*;
-import org.objectweb.asm.*;
+import net.neoforged.bus.api.Event;
+import net.neoforged.bus.api.EventListener;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class DispatchGen implements Opcodes {
 
     private static final String DISPATCHER = "io/github/nutant/fastevents/Dispatcher";
     private static final String FAILURE = "io/github/nutant/fastevents/Dispatcher$Failure";
-    private static final String CONSUMER = "java/util/function/Consumer";
-    private static final String CONSUMER_DESC = "Ljava/util/function/Consumer;";
-    private static final String LISTENER = "net/minecraftforge/eventbus/api/IEventListener";
-    private static final String LISTENER_DESC = "Lnet/minecraftforge/eventbus/api/IEventListener;";
-    private static final String EVENT = "net/minecraftforge/eventbus/api/Event";
-    private static final String EVENT_DESC = "Lnet/minecraftforge/eventbus/api/Event;";
-    private static final String PRIORITY = "net/minecraftforge/eventbus/api/EventPriority";
-    private static final String PRIORITY_DESC = "L" + PRIORITY + ";";
+    private static final String LISTENER = "net/neoforged/bus/api/EventListener";
+    private static final String LISTENER_DESC = "L" + LISTENER + ";";
+    private static final String EVENT = "net/neoforged/bus/api/Event";
+    private static final String EVENT_DESC = "L" + EVENT + ";";
     private static final String OBJECT_DESC = "Ljava/lang/Object;";
-    private static final String GENERIC = "net/minecraftforge/eventbus/api/IGenericEvent";
-    private static final String GENERIC_METHOD = "getGenericType";
-    private static final String INVOKER = "net/minecraftforge/eventbus/api/IEventBusInvokeDispatcher";
-    private static final String INVOKER_DESC = "L" + INVOKER + ";";
-    private static final String INVOKER_ARGS = "(" + LISTENER_DESC + EVENT_DESC + ")V";
 
     private static final AtomicInteger ID = new AtomicInteger();
-    private static final Loader LOADER = new Loader();
 
-    static final AtomicInteger GENERIC_STEPS = new AtomicInteger();
+    private static final int STEPS_PER_METHOD = Integer.getInteger("fastevents.steps", 64);
+
+    private static final boolean DUMP = Boolean.getBoolean("fastevents.dump");
 
     private DispatchGen() {
     }
 
-    static Dispatcher create(final Class<?> eventType, final IEventListener[] listeners) {
-        final List<Step> steps = new ArrayList<>(listeners.length);
-        for (int i = 0; i < listeners.length; i++) {
-            final Step step = classify(listeners[i], i);
-            steps.add(step);
-        }
-        if (steps.isEmpty()) {
+    static Dispatcher create(final Class<?> eventType, final EventListener[] listeners) {
+        if (listeners.length == 0) {
             return Dispatcher.EMPTY;
         }
 
         final String name = "io/github/nutant/fastevents/Gen" + ID.getAndIncrement();
-        final ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS) {
-            @Override
-            protected String getCommonSuperClass(final String type1, final String type2) {
-                try {
-                    final ClassLoader loader = DispatchGen.class.getClassLoader();
-                    Class<?> c1 = Class.forName(type1.replace('/', '.'), false, loader);
-                    final Class<?> c2 = Class.forName(type2.replace('/', '.'), false, loader);
-                    if (c1.isAssignableFrom(c2)) {
-                        return type1;
-                    }
-                    if (c2.isAssignableFrom(c1)) {
-                        return type2;
-                    }
-                    if (c1.isInterface() || c2.isInterface()) {
-                        return "java/lang/Object";
-                    }
-                    do {
-                        c1 = c1.getSuperclass();
-                    } while (!c1.isAssignableFrom(c2));
-                    return c1.getName().replace('.', '/');
-                } catch (final Throwable t) {
-                    return "java/lang/Object";
-                }
-            }
-        };
+        final ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
         cw.visit(V17, ACC_PUBLIC | ACC_FINAL | ACC_SUPER, name, null, "java/lang/Object", new String[]{DISPATCHER});
 
-        assignSlots(steps);
-        final boolean cancelable = isCancelable(eventType);
-        emitFieldsAndCtor(cw, name, steps);
-        emitDispatch(cw, name, steps, cancelable);
-        emitCancelled(cw, name, cancelable);
-        emitWrapped(cw, name, steps, cancelable);
+        for (int i = 0; i < listeners.length; i++) {
+            cw.visitField(ACC_PRIVATE | ACC_FINAL, "f" + i, LISTENER_DESC, null, null).visitEnd();
+        }
+
+        final MethodVisitor ctor = cw.visitMethod(ACC_PUBLIC, "<init>", "([Ljava/lang/Object;)V", null, null);
+        ctor.visitCode();
+        ctor.visitVarInsn(ALOAD, 0);
+        ctor.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        for (int i = 0; i < listeners.length; i++) {
+            ctor.visitVarInsn(ALOAD, 0);
+            ctor.visitVarInsn(ALOAD, 1);
+            pushInt(ctor, i);
+            ctor.visitInsn(AALOAD);
+            ctor.visitTypeInsn(CHECKCAST, LISTENER);
+            ctor.visitFieldInsn(PUTFIELD, name, "f" + i, LISTENER_DESC);
+        }
+        ctor.visitInsn(RETURN);
+        ctor.visitMaxs(0, 0);
+        ctor.visitEnd();
+
+        emitDispatch(cw, name, listeners.length);
         cw.visitEnd();
 
         try {
             final Class<?> cls = define(name.replace('/', '.'), cw.toByteArray());
-            final Constructor<?> ctor = cls.getDeclaredConstructors()[0];
-            final Object[] args = new Object[countFields(steps)];
-            int slot = 0;
-            for (final Step step : steps) {
-                for (final Object arg : step.args) {
-                    args[slot++] = arg;
-                }
-            }
-            return (Dispatcher) ctor.newInstance(new Object[]{args});
-        } catch (final Throwable t) {
-            throw new IllegalStateException("[FastEvents] dispatcher generation failed", t);
+            final Constructor<?> constructor = cls.getDeclaredConstructors()[0];
+            constructor.setAccessible(true);
+            return (Dispatcher) constructor.newInstance(new Object[]{listeners});
+        } catch (final Throwable throwable) {
+            throw new IllegalStateException("[FastEvents] dispatcher generation failed", throwable);
         }
-    }
-
-    private static Step classify(final IEventListener listener, final int index) {
-        if (listener instanceof EventPriority priority) {
-            return new Step(Kind.MARKER, NO_TYPES, NO_ARGS, true, priority, index);
-        }
-        if (listener instanceof FastDispatch.ConsumerListener<?> consumer) {
-            if (consumer.filter != null && Generic.DESC != null) {
-                GENERIC_STEPS.incrementAndGet();
-                return new Step(Kind.CONSUMER_FILTERED, new String[]{CONSUMER_DESC, OBJECT_DESC}, new Object[]{consumer.consumer, consumer.filter}, consumer.receiveCancelled, null, index);
-            }
-            return new Step(Kind.CONSUMER, new String[]{CONSUMER_DESC}, new Object[]{consumer.consumer},
-                    consumer.receiveCancelled, null, index);
-        }
-        if (listener instanceof FastDispatch.DirectListener direct) {
-            if (direct.filter == null) {
-                return new Step(Kind.ASM, new String[]{LISTENER_DESC}, new Object[]{direct.target}, direct.receiveCancelled, null, index);
-            }
-            if (Generic.DESC != null) {
-                GENERIC_STEPS.incrementAndGet();
-                return new Step(Kind.GENERIC, new String[]{LISTENER_DESC, OBJECT_DESC},
-                        new Object[]{direct.target, direct.filter}, direct.receiveCancelled, null, index);
-            }
-            return new Step(Kind.PLAIN, new String[]{LISTENER_DESC}, new Object[]{direct}, true, null, index);
-        }
-        return new Step(Kind.PLAIN, new String[]{LISTENER_DESC}, new Object[]{listener}, true, null, index);
-    }
-
-    private static int countFields(final List<Step> steps) {
-        int n = 0;
-        for (final Step step : steps) {
-            n += step.args.length;
-        }
-        return n;
-    }
-
-    private static void assignSlots(final List<Step> steps) {
-        int slot = 0;
-        for (final Step step : steps) {
-            step.fieldBase = slot;
-            slot += step.args.length;
-        }
-    }
-
-    private static void emitFieldsAndCtor(final ClassWriter cw, final String name, final List<Step> steps) {
-        for (final Step step : steps) {
-            for (int i = 0; i < step.args.length; i++) {
-                cw.visitField(ACC_PRIVATE | ACC_FINAL, field(step, i), step.types[i], null, null).visitEnd();
-            }
-        }
-
-        final StringBuilder desc = new StringBuilder("(");
-        for (final Step step : steps) {
-            for (final String type : step.types) {
-                desc.append(type);
-            }
-        }
-        desc.append(")V");
-
-        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "<init>", "([Ljava/lang/Object;)V", null, null);
-        mv.visitCode();
-        mv.visitVarInsn(ALOAD, 0);
-        mv.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
-        int slot = 0;
-        for (final Step step : steps) {
-            for (int i = 0; i < step.args.length; i++) {
-                mv.visitVarInsn(ALOAD, 0);
-                mv.visitVarInsn(ALOAD, 1);
-                pushInt(mv, slot++);
-                mv.visitInsn(AALOAD);
-                if (!OBJECT_DESC.equals(step.types[i])) {
-                    mv.visitTypeInsn(CHECKCAST, internalName(step.types[i]));
-                }
-                mv.visitFieldInsn(PUTFIELD, name, field(step, i), step.types[i]);
-            }
-        }
-        mv.visitInsn(RETURN);
-        mv.visitMaxs(0, 0);
-        mv.visitEnd();
-    }
-
-    private static String internalName(final String desc) {
-        return desc.substring(1, desc.length() - 1);
     }
 
     private static void pushInt(final MethodVisitor mv, final int value) {
@@ -193,41 +83,29 @@ final class DispatchGen implements Opcodes {
         }
     }
 
-    private static boolean isCancelable(final Class<?> eventType) {
-        for (Class<?> c = eventType; c != null && c != Event.class; c = c.getSuperclass()) {
-            if (c.isAnnotationPresent(Cancelable.class)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static final int STEPS_PER_METHOD = Integer.getInteger("fastevents.steps", 64);
-
-    private static final boolean DUMP = Boolean.getBoolean("fastevents.dump");
-
-    private static void emitDispatch(final ClassWriter cw, final String name, final List<Step> steps,
-                                     final boolean cancelable) {
-        if (steps.size() <= STEPS_PER_METHOD) {
+    private static void emitDispatch(final ClassWriter cw, final String name, final int count) {
+        if (count <= STEPS_PER_METHOD) {
             final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")V", null, null);
             mv.visitCode();
-            emitSteps(mv, name, steps, cancelable);
+            emitSteps(mv, name, 0, count);
             mv.visitInsn(RETURN);
             mv.visitMaxs(0, 0);
             mv.visitEnd();
             return;
         }
-        final int chunks = (steps.size() + STEPS_PER_METHOD - 1) / STEPS_PER_METHOD;
+
+        final int chunks = (count + STEPS_PER_METHOD - 1) / STEPS_PER_METHOD;
         for (int chunk = 0; chunk < chunks; chunk++) {
             final int from = chunk * STEPS_PER_METHOD;
-            final int to = Math.min(steps.size(), from + STEPS_PER_METHOD);
+            final int to = Math.min(count, from + STEPS_PER_METHOD);
             final MethodVisitor mv = cw.visitMethod(ACC_PRIVATE, "run" + chunk, "(" + EVENT_DESC + ")V", null, null);
             mv.visitCode();
-            emitSteps(mv, name, steps.subList(from, to), cancelable);
+            emitSteps(mv, name, from, to);
             mv.visitInsn(RETURN);
             mv.visitMaxs(0, 0);
             mv.visitEnd();
         }
+
         final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")V", null, null);
         mv.visitCode();
         for (int chunk = 0; chunk < chunks; chunk++) {
@@ -240,180 +118,38 @@ final class DispatchGen implements Opcodes {
         mv.visitEnd();
     }
 
-    private static void emitSteps(final MethodVisitor mv, final String name, final List<Step> steps,
-                                  final boolean cancelable) {
-        for (final Step step : steps) {
-            if (step.kind == Kind.MARKER) {
-                mv.visitVarInsn(ALOAD, 1);
-                mv.visitFieldInsn(GETSTATIC, PRIORITY, step.priority.name(), PRIORITY_DESC);
-                mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "setPhase", "(" + PRIORITY_DESC + ")V", false);
-                continue;
-            }
-
-            final Label body = new Label();
-            final Label skip = new Label();
-
-            if (cancelable && !step.receiveCancelled) {
-                mv.visitVarInsn(ALOAD, 1);
-                mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "isCanceled", "()Z", false);
-                mv.visitJumpInsn(IFNE, skip);
-            }
-            if (step.kind == Kind.GENERIC || step.kind == Kind.CONSUMER_FILTERED) {
-                mv.visitVarInsn(ALOAD, 0);
-                mv.visitFieldInsn(GETFIELD, name, field(step, 1), OBJECT_DESC);
-                mv.visitVarInsn(ALOAD, 1);
-                mv.visitTypeInsn(CHECKCAST, GENERIC);
-                mv.visitMethodInsn(INVOKEINTERFACE, GENERIC, GENERIC_METHOD, Generic.DESC, true);
-                mv.visitJumpInsn(IF_ACMPNE, skip);
-            }
-            mv.visitLabel(body);
-
-            final Label start = new Label();
-            final Label end = new Label();
-            final Label handler = new Label();
+    private static void emitSteps(final MethodVisitor mv, final String name, final int from, final int to) {
+        for (int index = from; index < to; index++) {
+            final org.objectweb.asm.Label start = new org.objectweb.asm.Label();
+            final org.objectweb.asm.Label end = new org.objectweb.asm.Label();
+            final org.objectweb.asm.Label handler = new org.objectweb.asm.Label();
+            final org.objectweb.asm.Label next = new org.objectweb.asm.Label();
             mv.visitTryCatchBlock(start, end, handler, "java/lang/Throwable");
 
             mv.visitLabel(start);
             mv.visitVarInsn(ALOAD, 0);
-            mv.visitFieldInsn(GETFIELD, name, field(step, 0), step.types[0]);
+            mv.visitFieldInsn(GETFIELD, name, "f" + index, LISTENER_DESC);
             mv.visitVarInsn(ALOAD, 1);
-            if (step.kind == Kind.CONSUMER || step.kind == Kind.CONSUMER_FILTERED) {
-                mv.visitMethodInsn(INVOKEINTERFACE, CONSUMER, "accept", "(Ljava/lang/Object;)V", true);
-            } else {
-                mv.visitMethodInsn(INVOKEINTERFACE, LISTENER, "invoke", "(" + EVENT_DESC + ")V", true);
-            }
+            mv.visitMethodInsn(INVOKEVIRTUAL, LISTENER, "invoke", "(" + EVENT_DESC + ")V", false);
             mv.visitLabel(end);
-            mv.visitJumpInsn(GOTO, skip);
+            mv.visitJumpInsn(GOTO, next);
 
             mv.visitLabel(handler);
             mv.visitVarInsn(ASTORE, 2);
             mv.visitTypeInsn(NEW, FAILURE);
             mv.visitInsn(DUP);
             mv.visitVarInsn(ALOAD, 2);
-            mv.visitLdcInsn(step.index);
+            mv.visitLdcInsn(index);
             mv.visitMethodInsn(INVOKESPECIAL, FAILURE, "<init>", "(Ljava/lang/Throwable;I)V", false);
             mv.visitInsn(ATHROW);
 
-            mv.visitLabel(skip);
-        }
-    }
-
-    private static void emitCancelled(final ClassWriter cw, final String name, final boolean cancelable) {
-        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatchAndCancelled",
-                "(" + EVENT_DESC + ")Z", null, null);
-        mv.visitCode();
-        mv.visitVarInsn(ALOAD, 0);
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitMethodInsn(INVOKEVIRTUAL, name, "dispatch", "(" + EVENT_DESC + ")V", false);
-        if (cancelable) {
-            mv.visitVarInsn(ALOAD, 1);
-            mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "isCanceled", "()Z", false);
-            mv.visitInsn(IRETURN);
-        } else {
-            mv.visitInsn(ICONST_0);
-            mv.visitInsn(IRETURN);
-        }
-        mv.visitMaxs(0, 0);
-        mv.visitEnd();
-    }
-
-    private static void emitWrapped(final ClassWriter cw, final String name, final List<Step> steps,
-                                    final boolean cancelable) {
-        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatchAndCancelled",
-                "(" + EVENT_DESC + INVOKER_DESC + ")Z", null, null);
-        mv.visitCode();
-
-        for (final Step step : steps) {
-            final Label start = new Label();
-            final Label end = new Label();
-            final Label handler = new Label();
-            final Label after = new Label();
-            mv.visitTryCatchBlock(start, end, handler, "java/lang/Throwable");
-
-            mv.visitLabel(start);
-            mv.visitVarInsn(ALOAD, 2);
-            if (step.kind == Kind.MARKER) {
-                mv.visitFieldInsn(GETSTATIC, PRIORITY, step.priority.name(), PRIORITY_DESC);
-            } else {
-                mv.visitVarInsn(ALOAD, 0);
-                mv.visitFieldInsn(GETFIELD, name, field(step, 0), step.types[0]);
-            }
-            mv.visitVarInsn(ALOAD, 1);
-            mv.visitMethodInsn(INVOKEINTERFACE, INVOKER, "invoke", INVOKER_ARGS, true);
-            mv.visitLabel(end);
-            mv.visitJumpInsn(GOTO, after);
-
-            mv.visitLabel(handler);
-            mv.visitVarInsn(ASTORE, 3);
-            mv.visitTypeInsn(NEW, FAILURE);
-            mv.visitInsn(DUP);
-            mv.visitVarInsn(ALOAD, 3);
-            mv.visitLdcInsn(step.index);
-            mv.visitMethodInsn(INVOKESPECIAL, FAILURE, "<init>", "(Ljava/lang/Throwable;I)V", false);
-            mv.visitInsn(ATHROW);
-
-            mv.visitLabel(after);
-        }
-
-        if (cancelable) {
-            mv.visitVarInsn(ALOAD, 1);
-            mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "isCanceled", "()Z", false);
-            mv.visitInsn(IRETURN);
-        } else {
-            mv.visitInsn(ICONST_0);
-            mv.visitInsn(IRETURN);
-        }
-        mv.visitMaxs(0, 0);
-        mv.visitEnd();
-    }
-
-
-    private static String field(final Step step, final int index) {
-        return "f" + (step.fieldBase + index);
-    }
-
-    private static final class Generic {
-        static final String DESC;
-
-        static {
-            String desc;
-            try {
-                desc = Type.getMethodDescriptor(IGenericEvent.class.getMethod(GENERIC_METHOD));
-            } catch (final Throwable ignored) {
-                desc = null;
-            }
-            DESC = desc;
-        }
-    }
-
-    private static final String[] NO_TYPES = new String[0];
-    private static final Object[] NO_ARGS = new Object[0];
-
-    private enum Kind {MARKER, CONSUMER, CONSUMER_FILTERED, ASM, GENERIC, PLAIN}
-
-    private static final class Step {
-        final Kind kind;
-        final String[] types;
-        final Object[] args;
-        final boolean receiveCancelled;
-        final EventPriority priority;
-        final int index;
-        int fieldBase = -1;
-
-        Step(final Kind kind, final String[] types, final Object[] args, final boolean receiveCancelled,
-             final EventPriority priority, final int index) {
-            this.kind = kind;
-            this.types = types;
-            this.args = args;
-            this.receiveCancelled = receiveCancelled;
-            this.priority = priority;
-            this.index = index;
+            mv.visitLabel(next);
         }
     }
 
     private static Class<?> define(final String name, final byte[] bytes) {
         if (DUMP) {
-            try (java.io.OutputStream out = new java.io.FileOutputStream(name.replace('/', '.') + ".class")) {
+            try (java.io.OutputStream out = new java.io.FileOutputStream(name + ".class")) {
                 out.write(bytes);
             } catch (final Throwable ignored) {
             }
@@ -424,6 +160,8 @@ final class DispatchGen implements Opcodes {
             return LOADER.define(name, bytes);
         }
     }
+
+    private static final Loader LOADER = new Loader();
 
     private static final class Loader extends ClassLoader {
         Loader() {

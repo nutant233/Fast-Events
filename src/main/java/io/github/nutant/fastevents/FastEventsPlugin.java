@@ -24,7 +24,8 @@ public final class FastEventsPlugin implements ILaunchPluginService {
     }
 
     @Override
-    public int processClassWithFlags(final Phase phase, final ClassNode classNode, final Type classType, final String reason) {
+    public int processClassWithFlags(final Phase phase, final ClassNode classNode, final Type classType,
+                                     final String reason) {
         if (!PostCallRewriter.referencesBus(classNode)) return ComputeFlags.NO_REWRITE;
         final PostCallRewriter rewriter = new PostCallRewriter();
         final int changed = rewriter.rewrite(classNode);

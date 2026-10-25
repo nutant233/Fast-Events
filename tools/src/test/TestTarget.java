@@ -1,72 +1,48 @@
 package test;
 
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.eventbus.api.Cancelable;
-import net.minecraftforge.eventbus.api.Event;
-import net.minecraftforge.eventbus.api.IEventBus;
+import net.neoforged.bus.api.Event;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.NeoForge;
 
-/** 被转换的样本：四种调用形态。 */
+/** Sample bytecode for the rewriter: discarded result, used result, unknown bus, guard site and hooks. */
 public final class TestTarget {
 
-    private TestTarget() {}
-
-    public static boolean postNew() {
-        return MinecraftForge.EVENT_BUS.post(new FooEvent(1));
+    private TestTarget() {
     }
 
-    public static boolean postFromLocal(final Event event) {
-        return MinecraftForge.EVENT_BUS.post(event);
+    public static FooEvent postNew() {
+        return NeoForge.EVENT_BUS.post(new FooEvent(1));
     }
 
-    public static boolean postOtherBus(final IEventBus bus) {
-        return bus.post(new FooEvent(2));
+    public static void postDiscarded() {
+        NeoForge.EVENT_BUS.post(new FooEvent(2));
     }
 
-    public static boolean postWrapped(final IEventBus bus, final net.minecraftforge.eventbus.api.Event event,
-                                      final net.minecraftforge.eventbus.api.IEventBusInvokeDispatcher invoker) {
-        return bus.post(event, invoker);
+    public static Event postFromLocal(final Event event) {
+        return NeoForge.EVENT_BUS.post(event);
     }
 
-    public static boolean postWrappedDirect(final net.minecraftforge.eventbus.api.Event event,
-                                            final net.minecraftforge.eventbus.api.IEventBusInvokeDispatcher invoker) {
-        return MinecraftForge.EVENT_BUS.post(event, invoker);
+    public static Event postOtherBus(final IEventBus bus) {
+        return bus.post(new FooEvent(3));
     }
 
-    public static void addOnBus(final IEventBus bus, final java.util.function.Consumer<FooEvent> consumer) {
-        bus.addListener(net.minecraftforge.eventbus.api.EventPriority.NORMAL, false, FooEvent.class, consumer);
+    public static void postUnlistened() {
+        NeoForge.EVENT_BUS.post(new UnlistenedEvent());
     }
 
     public static void addBarListener(final java.util.function.Consumer<BarEvent> consumer) {
-        MinecraftForge.EVENT_BUS.addListener(net.minecraftforge.eventbus.api.EventPriority.NORMAL, false,
-                BarEvent.class, consumer);
-    }
-
-    public static void addGenericListenerC(final java.util.function.Consumer<GenericTestEvent<String>> consumer) {
-        MinecraftForge.EVENT_BUS.addGenericListener(String.class, consumer);
-    }
-
-    public static void removeListener(final Object object) {
-        MinecraftForge.EVENT_BUS.unregister(object);
-    }
-
-    public static void postGeneric(final net.minecraftforge.eventbus.api.Event event) {
-        MinecraftForge.EVENT_BUS.post(event);
-    }
-
-    public static void postBar() {
-        MinecraftForge.EVENT_BUS.post(new BarEvent());
+        NeoForge.EVENT_BUS.addListener(BarEvent.class, consumer);
     }
 
     public static void registerOn(final IEventBus bus, final Object listener) {
         bus.register(listener);
     }
 
-    public static class BarEvent extends Event {
-        public BarEvent() {}
+    public static void unregisterOn(final IEventBus bus, final Object listener) {
+        bus.unregister(listener);
     }
 
-    public static void postUnlistened() {
-        MinecraftForge.EVENT_BUS.post(new UnlistenedEvent());
+    public static class BarEvent extends Event {
     }
 
     public static class UnlistenedEvent extends Event {
@@ -75,13 +51,8 @@ public final class TestTarget {
         }
     }
 
-    @Cancelable
     public static class FooEvent extends Event {
         public final int value;
-
-        public FooEvent() {
-            this(0);
-        }
 
         public FooEvent(final int value) {
             this.value = value;

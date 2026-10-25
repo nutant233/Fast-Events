@@ -16,3 +16,6 @@ src/generated/
 .classpath
 .project
 *.DS_Store
+
+tools/out/
+tools/cp.txt

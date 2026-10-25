@@ -7,30 +7,28 @@ import org.objectweb.asm.tree.analysis.*;
 
 public final class PostCallRewriter {
 
-    public static final String BUS_OWNER = "net/minecraftforge/common/MinecraftForge";
+    public static final String BUS_OWNER = "net/neoforged/neoforge/common/NeoForge";
     public static final String BUS_FIELD = "EVENT_BUS";
-    public static final String BUS_DESC = "Lnet/minecraftforge/eventbus/api/IEventBus;";
-    public static final String EVENTBUS = "net/minecraftforge/eventbus/api/IEventBus";
-    public static final String EVENT_DESC = "Lnet/minecraftforge/eventbus/api/Event;";
-    public static final String POST_DESC = "(" + EVENT_DESC + ")Z";
+    public static final String BUS_DESC = "Lnet/neoforged/bus/api/IEventBus;";
+    public static final String EVENTBUS = "net/neoforged/bus/api/IEventBus";
+    public static final String EVENT_DESC = "Lnet/neoforged/bus/api/Event;";
+    public static final String POST_DESC = "(" + EVENT_DESC + ")" + EVENT_DESC;
+
     private static final String CONSUMER_DESC = "Ljava/util/function/Consumer;";
     private static final String CLASS_DESC = "Ljava/lang/Class;";
-    private static final String PRIORITY_DESC = "Lnet/minecraftforge/eventbus/api/EventPriority;";
-    private static final String INVOKER_DESC = "Lnet/minecraftforge/eventbus/api/IEventBusInvokeDispatcher;";
-    private static final String WRAPPED_POST_DESC = "(" + EVENT_DESC + INVOKER_DESC + ")Z";
+    private static final String PRIORITY_DESC = "Lnet/neoforged/bus/api/EventPriority;";
+    private static final String TARGET_DESC = "(Ljava/lang/Object;)V";
+
     public static final String[] ADD_LISTENER_DESCS = {
             "(" + CONSUMER_DESC + ")V",
+            "(" + CLASS_DESC + CONSUMER_DESC + ")V",
             "(" + PRIORITY_DESC + CONSUMER_DESC + ")V",
+            "(" + PRIORITY_DESC + CLASS_DESC + CONSUMER_DESC + ")V",
             "(" + PRIORITY_DESC + "Z" + CONSUMER_DESC + ")V",
             "(" + PRIORITY_DESC + "Z" + CLASS_DESC + CONSUMER_DESC + ")V",
+            "(Z" + CONSUMER_DESC + ")V",
+            "(Z" + CLASS_DESC + CONSUMER_DESC + ")V",
     };
-    public static final String[] ADD_GENERIC_LISTENER_DESCS = {
-            "(" + CLASS_DESC + CONSUMER_DESC + ")V",
-            "(" + CLASS_DESC + PRIORITY_DESC + CONSUMER_DESC + ")V",
-            "(" + CLASS_DESC + PRIORITY_DESC + "Z" + CONSUMER_DESC + ")V",
-            "(" + CLASS_DESC + PRIORITY_DESC + "Z" + CLASS_DESC + CONSUMER_DESC + ")V",
-    };
-    public static final String UNREGISTER_DESC = "(Ljava/lang/Object;)V";
 
     public static final String HELPER = "io/github/nutant/fastevents/FastDispatch";
     public static final String HOLDER_DESC = "L" + HELPER + "$Holder;";
@@ -47,10 +45,12 @@ public final class PostCallRewriter {
     public static boolean referencesBus(final ClassNode classNode) {
         for (final MethodNode method : classNode.methods) {
             for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (insn instanceof FieldInsnNode field && insn.getOpcode() == Opcodes.GETSTATIC && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
+                if (insn instanceof FieldInsnNode field && insn.getOpcode() == Opcodes.GETSTATIC
+                        && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
                     return true;
                 }
-                if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
+                if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE
+                        && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
                     return true;
                 }
             }
@@ -73,47 +73,15 @@ public final class PostCallRewriter {
         return this.postSites + this.hookSites;
     }
 
-    private static TypeInsnNode fixedNew(final AbstractInsnNode receiver, final AbstractInsnNode call,
-                                         final SourceValue value) {
-        if (value == null || value.insns.size() != 1) {
-            return null;
-        }
-        final AbstractInsnNode source = value.insns.iterator().next();
-        if (source.getOpcode() == Opcodes.NEW && source instanceof TypeInsnNode type) {
-            return type;
-        }
-        if (source.getOpcode() == Opcodes.DUP) {
-            final AbstractInsnNode prev = source.getPrevious();
-            return prev != null && prev.getOpcode() == Opcodes.NEW && prev instanceof TypeInsnNode type ? type : null;
-        }
-        if (source instanceof MethodInsnNode init && init.getOpcode() == Opcodes.INVOKESPECIAL && "<init>".equals(init.name)) {
-            if (receiver == null) {
-                return null;
-            }
-            for (AbstractInsnNode insn = receiver.getNext(); insn != null && insn != call; insn = insn.getNext()) {
-                if (insn.getOpcode() == Opcodes.NEW && insn instanceof TypeInsnNode type && type.desc.equals(init.owner)) {
-                    return type;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static SourceValue receiver(final Frame<SourceValue> frame, final String desc) {
-        final int arguments = Type.getArgumentTypes(desc).length;
-        final int index = frame.getStackSize() - 1 - arguments;
-        return index < 0 ? null : frame.getStack(index);
-    }
-
     private void rewriteMethod(final ClassNode classNode, final MethodNode method) {
-        if (!mentionsPost(method)) {
+        if (!mentionsTarget(method)) {
             return;
         }
 
         final Frame<SourceValue>[] frames;
         try {
             frames = new Analyzer<>(new SourceInterpreter()).analyze(classNode.name, method);
-        } catch (final AnalyzerException | RuntimeException e) {
+        } catch (final AnalyzerException | RuntimeException ignored) {
             return;
         }
 
@@ -132,36 +100,22 @@ public final class PostCallRewriter {
             if (frame == null) {
                 continue;
             }
-            final boolean verified = isForgeBus(receiver(frame, call.desc));
 
             if (!"post".equals(call.name)) {
-                method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, call.name, "(" + BUS_DESC + call.desc.substring(1), false));
+                method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, call.name,
+                        "(" + BUS_DESC + call.desc.substring(1), false));
                 this.hookSites++;
                 continue;
             }
 
-            if (!verified) {
+            if (!isForgeBus(receiver(frame, call.desc))) {
                 continue;
             }
 
-            if (WRAPPED_POST_DESC.equals(call.desc)) {
-                final String wrappedField = holderName(method, site);
-                site++;
-                if (addHolderField(classNode, wrappedField)) {
-                    this.holders++;
-                }
-                method.instructions.insertBefore(call, new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, wrappedField, HOLDER_DESC));
-                method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, "postWrapped", "(" + BUS_DESC + EVENT_DESC + INVOKER_DESC + HOLDER_DESC + ")Z", false));
-                this.postSites++;
-                addedHolder = true;
-                continue;
-            }
-
-            final AbstractInsnNode receiver = receiverInsn(call);
-            final TypeInsnNode newInsn = fixedNew(receiver, call, frame.getStack(frame.getStackSize() - 1));
+            final AbstractInsnNode bus = receiverInsn(call);
+            final TypeInsnNode newInsn = fixedNew(bus, call, frame.getStack(frame.getStackSize() - 1));
             final AbstractInsnNode next = call.getNext();
             final AbstractInsnNode pop = next != null && next.getOpcode() == Opcodes.POP ? next : null;
-            final String helper = pop != null ? "postVoid" : "post";
 
             final String fieldName = holderName(method, site);
             site++;
@@ -169,19 +123,17 @@ public final class PostCallRewriter {
                 this.holders++;
             }
 
-            final boolean guardable = newInsn != null && guardEnabled && isGuardable(receiver, newInsn, call);
+            final boolean guardable = newInsn != null && pop != null && guardEnabled && isGuardable(bus, newInsn, call);
 
             method.instructions.insertBefore(call, new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, fieldName, HOLDER_DESC));
-            final MethodInsnNode replacement = new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, helper, "(" + BUS_DESC + EVENT_DESC + HOLDER_DESC + ")" + (pop != null ? "V" : "Z"), false);
+            final MethodInsnNode replacement = new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, "post",
+                    "(" + BUS_DESC + EVENT_DESC + HOLDER_DESC + ")" + EVENT_DESC, false);
             method.instructions.set(call, replacement);
-            if (pop != null) {
-                method.instructions.remove(pop);
-            }
             this.postSites++;
             addedHolder = true;
 
             if (guardable) {
-                insertGuard(method, classNode.name, fieldName, receiver, replacement, newInsn.desc, pop != null);
+                insertGuard(method, classNode.name, fieldName, bus, replacement, pop, newInsn.desc);
                 this.guardSites++;
             }
         }
@@ -191,39 +143,81 @@ public final class PostCallRewriter {
         }
     }
 
-    private static boolean addHolderField(final ClassNode classNode, final String fieldName) {
-        for (final FieldNode field : classNode.fields) {
-            if (fieldName.equals(field.name)) {
-                return false;
+    private static void insertGuard(final MethodNode method, final String owner, final String fieldName,
+                                    final AbstractInsnNode bus, final AbstractInsnNode call,
+                                    final AbstractInsnNode pop, final String eventInternalName) {
+        final LabelNode skip = new LabelNode();
+        final InsnList guard = new InsnList();
+        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, BUS_OWNER, BUS_FIELD, BUS_DESC));
+        guard.add(new LdcInsnNode(Type.getObjectType(eventInternalName)));
+        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, owner, fieldName, HOLDER_DESC));
+        guard.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, "hasListeners",
+                "(" + BUS_DESC + "Ljava/lang/Class;" + HOLDER_DESC + ")Z", false));
+        guard.add(new JumpInsnNode(Opcodes.IFEQ, skip));
+        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, BUS_OWNER, BUS_FIELD, BUS_DESC));
+        method.instructions.insertBefore(bus, guard);
+        method.instructions.remove(bus);
+        method.instructions.insert(pop, skip);
+    }
+
+    private static TypeInsnNode fixedNew(final AbstractInsnNode bus, final AbstractInsnNode call,
+                                         final SourceValue value) {
+        if (value == null || value.insns.size() != 1) {
+            return null;
+        }
+        final AbstractInsnNode source = value.insns.iterator().next();
+        if (source.getOpcode() == Opcodes.NEW && source instanceof TypeInsnNode type) {
+            return type;
+        }
+        if (source.getOpcode() == Opcodes.DUP) {
+            final AbstractInsnNode previous = source.getPrevious();
+            return previous != null && previous.getOpcode() == Opcodes.NEW && previous instanceof TypeInsnNode type
+                    ? type : null;
+        }
+        if (source instanceof MethodInsnNode init && init.getOpcode() == Opcodes.INVOKESPECIAL
+                && "<init>".equals(init.name)) {
+            if (bus == null) {
+                return null;
+            }
+            for (AbstractInsnNode insn = bus.getNext(); insn != null && insn != call; insn = insn.getNext()) {
+                if (insn.getOpcode() == Opcodes.NEW && insn instanceof TypeInsnNode type
+                        && type.desc.equals(init.owner)) {
+                    return type;
+                }
             }
         }
-        final boolean iface = (classNode.access & Opcodes.ACC_INTERFACE) != 0;
-        classNode.fields.add(new FieldNode((iface ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE) | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC, fieldName, HOLDER_DESC, null, null));
-        return true;
+        return null;
+    }
+
+    private static SourceValue receiver(final Frame<SourceValue> frame, final String desc) {
+        final int arguments = Type.getArgumentTypes(desc).length;
+        final int index = frame.getStackSize() - 1 - arguments;
+        return index < 0 ? null : frame.getStack(index);
     }
 
     private static AbstractInsnNode receiverInsn(final AbstractInsnNode call) {
         for (AbstractInsnNode insn = call.getPrevious(); insn != null; insn = insn.getPrevious()) {
-            if (insn.getOpcode() == Opcodes.GETSTATIC && insn instanceof FieldInsnNode field && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
+            if (insn.getOpcode() == Opcodes.GETSTATIC && insn instanceof FieldInsnNode field
+                    && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
                 return insn;
             }
         }
         return null;
     }
 
-    private static boolean isGuardable(final AbstractInsnNode receiver, final TypeInsnNode newInsn,
+    private static boolean isGuardable(final AbstractInsnNode bus, final TypeInsnNode newInsn,
                                        final AbstractInsnNode call) {
-        if (receiver == null || newInsn == null) {
+        if (bus == null || newInsn == null) {
             return false;
         }
         boolean sawNew = false;
         boolean sawInit = false;
-        for (AbstractInsnNode insn = receiver.getNext(); insn != null && insn != call; insn = insn.getNext()) {
+        for (AbstractInsnNode insn = bus.getNext(); insn != null && insn != call; insn = insn.getNext()) {
             if (insn instanceof LabelNode) {
                 return false;
             }
-            final int op = insn.getOpcode();
-            if (op < 0) {
+            final int opcode = insn.getOpcode();
+            if (opcode < 0) {
                 continue;
             }
             if (insn == newInsn) {
@@ -237,7 +231,7 @@ public final class PostCallRewriter {
                 }
                 return false;
             }
-            if (!isPure(op)) {
+            if (!isPure(opcode)) {
                 return false;
             }
         }
@@ -277,34 +271,10 @@ public final class PostCallRewriter {
         };
     }
 
-    private static void insertGuard(final MethodNode method, final String owner, final String fieldName,
-                                    final AbstractInsnNode receiver, final AbstractInsnNode call,
-                                    final String eventInternalName, final boolean discarded) {
-        final LabelNode skip = new LabelNode();
-        final LabelNode end = new LabelNode();
-        final InsnList guard = new InsnList();
-        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, BUS_OWNER, BUS_FIELD, BUS_DESC));
-        guard.add(new LdcInsnNode(Type.getObjectType(eventInternalName)));
-        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, owner, fieldName, HOLDER_DESC));
-        guard.add(new MethodInsnNode(Opcodes.INVOKESTATIC, HELPER, "hasListeners", "(" + BUS_DESC + "Ljava/lang/Class;" + HOLDER_DESC + ")Z", false));
-        guard.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFEQ, skip));
-        guard.add(new FieldInsnNode(Opcodes.GETSTATIC, BUS_OWNER, BUS_FIELD, BUS_DESC));
-        method.instructions.insertBefore(receiver, guard);
-        method.instructions.remove(receiver);
-
-        final InsnList tail = new InsnList();
-        tail.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.GOTO, end));
-        tail.add(skip);
-        if (!discarded) {
-            tail.add(new InsnNode(Opcodes.ICONST_0));
-        }
-        tail.add(end);
-        method.instructions.insert(call, tail);
-    }
-
-    private static boolean mentionsPost(final MethodNode method) {
+    private static boolean mentionsTarget(final MethodNode method) {
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
+            if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE
+                    && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
                 return true;
             }
         }
@@ -312,19 +282,12 @@ public final class PostCallRewriter {
     }
 
     private static boolean isRewriteTarget(final MethodInsnNode call) {
-        if ("post".equals(call.name)) {
-            return POST_DESC.equals(call.desc) || WRAPPED_POST_DESC.equals(call.desc);
-        }
-        if ("addListener".equals(call.name)) {
-            return matches(ADD_LISTENER_DESCS, call.desc);
-        }
-        if ("addGenericListener".equals(call.name)) {
-            return matches(ADD_GENERIC_LISTENER_DESCS, call.desc);
-        }
-        if ("unregister".equals(call.name)) {
-            return UNREGISTER_DESC.equals(call.desc);
-        }
-        return false;
+        return switch (call.name) {
+            case "post" -> POST_DESC.equals(call.desc);
+            case "addListener" -> matches(ADD_LISTENER_DESCS, call.desc);
+            case "register", "unregister" -> TARGET_DESC.equals(call.desc);
+            default -> false;
+        };
     }
 
     private static boolean matches(final String[] descs, final String desc) {
@@ -334,6 +297,17 @@ public final class PostCallRewriter {
             }
         }
         return false;
+    }
+
+    private static boolean isForgeBus(final SourceValue value) {
+        if (value == null || value.insns.size() != 1) {
+            return false;
+        }
+        final AbstractInsnNode source = value.insns.iterator().next();
+        if (source.getOpcode() != Opcodes.GETSTATIC || !(source instanceof FieldInsnNode field)) {
+            return false;
+        }
+        return BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name) && BUS_DESC.equals(field.desc);
     }
 
     private static String holderName(final MethodNode method, final int site) {
@@ -354,6 +328,18 @@ public final class PostCallRewriter {
             }
         }
         return builder.toString();
+    }
+
+    private static boolean addHolderField(final ClassNode classNode, final String fieldName) {
+        for (final FieldNode field : classNode.fields) {
+            if (fieldName.equals(field.name)) {
+                return false;
+            }
+        }
+        final boolean iface = (classNode.access & Opcodes.ACC_INTERFACE) != 0;
+        classNode.fields.add(new FieldNode((iface ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE) | Opcodes.ACC_STATIC
+                | Opcodes.ACC_FINAL | Opcodes.ACC_SYNTHETIC, fieldName, HOLDER_DESC, null, null));
+        return true;
     }
 
     private void initHolders(final ClassNode classNode) {
@@ -388,16 +374,5 @@ public final class PostCallRewriter {
                 clinit.maxStack = 1;
             }
         }
-    }
-
-    private static boolean isForgeBus(final SourceValue value) {
-        if (value == null || value.insns.size() != 1) {
-            return false;
-        }
-        final AbstractInsnNode source = value.insns.iterator().next();
-        if (source.getOpcode() != Opcodes.GETSTATIC || !(source instanceof FieldInsnNode field)) {
-            return false;
-        }
-        return BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name) && BUS_DESC.equals(field.desc);
     }
 }

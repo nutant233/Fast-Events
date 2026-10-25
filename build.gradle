@@ -1,37 +1,62 @@
 plugins {
     id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.141'
 }
 
-group = 'io.github.nutant'
-version = '1.20-26.10.1'
+version = mod_version
+group = mod_group_id
 
 base {
-    archivesName = 'fastevents'
+    archivesName = mod_id
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+        }
+
+        server {
+            server()
+            programArgument '--nogui'
+        }
+
+        configureEach {
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
     }
 }
 
-
-repositories {
-    mavenCentral()
-    maven { url = 'https://maven.minecraftforge.net/' }
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            neo_version           : neo_version,
+            neo_version_range     : neo_version_range,
+            loader_version_range  : loader_version_range,
+            mod_id                : mod_id,
+            mod_name              : mod_name,
+            mod_license           : mod_license,
+            mod_version           : mod_version,
+            mod_authors           : mod_authors,
+            mod_description       : mod_description
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
 }
 
-// 全部 compileOnly：这些类在启动器/游戏运行时都已经存在，jar 里不能打包它们
-dependencies {
-    compileOnly 'net.minecraftforge:eventbus:6.2.33'
-    compileOnly('net.minecraftforge:forgespi:7.0.1') { transitive = false }
-    compileOnly 'cpw.mods:modlauncher:10.0.9'
-    compileOnly 'org.ow2.asm:asm:9.5'
-    compileOnly 'org.ow2.asm:asm-tree:9.5'
-    compileOnly 'org.ow2.asm:asm-analysis:9.5'
-    compileOnly 'org.apache.logging.log4j:log4j-api:2.17.1'
-    compileOnly 'net.jodah:typetools:0.6.3'
-}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
 
 jar {
     manifest {
