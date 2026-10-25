@@ -1,0 +1,19 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "GNU LGPL 3.0"
+
+[[mods]]
+modId = "fastevents"
+version = "${file.jarVersion}"
+displayName = "Fast-Events"
+authors = "nutant"
+description = '''
+Dispatch-path optimizations for MinecraftForge.EVENT_BUS on Minecraft Forge.
+'''
+
+[[dependencies.fastevents]]
+    modId = "forge"
+    mandatory = true
+    versionRange = "[47,)"
+    ordering = "NONE"
+    side = "BOTH"
