@@ -46,6 +46,9 @@ public final class FastDispatch {
     }
 
     public static boolean hasListeners(final IEventBus bus, final Class<? extends Event> type, final Holder holder) {
+        if (holder == null) {
+            return true;
+        }
         Dispatcher dispatcher = lookup(holder, type);
         if (dispatcher == null) {
             dispatcher = resolveForType(bus, type, holder);
@@ -97,6 +100,9 @@ public final class FastDispatch {
     }
 
     private static Dispatcher peek(final IEventBus bus, final Event event, final Holder holder) {
+        if (holder == null) {
+            return null;
+        }
         final Class<?> type = event.getClass();
         Dispatcher dispatcher = lookup(holder, type);
         if (dispatcher == null) {

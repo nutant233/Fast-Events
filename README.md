@@ -20,6 +20,18 @@ megamorphic loop, and event objects are not even constructed when nobody listens
 Per post, on Forge 47.4.x / eventbus 6.2.33, Java 21. Wider listener arrays stay ahead of vanilla too: 128 listeners
 201 ns → **88 ns**, 512 listeners 1090 ns → **556 ns**.
 
+## Versions
+
+One branch per Minecraft version; the code is the same, only the bus and loader it targets differ.
+
+| Minecraft | Loader | Branch |
+|---|---|---|
+| 1.21.1 | NeoForge 21.1.x | `1.21` |
+| 1.20.1 | Forge 47.x | `1.20` |
+| 1.19.2 | Forge 43.x | `1.19` |
+| 1.18.2 | Forge 40.x | `1.18` |
+| 1.16.5 | Forge 36.x | `1.16` |
+
 ## How it works
 
 `EventBus.post` walks an `IEventListener[]` and calls `listeners[i].invoke(event)`. That one call site sees every
