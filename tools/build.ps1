@@ -1,5 +1,5 @@
 # 离线编译 + 运行 harness（不需要 Gradle、不需要 Minecraft）
-# 基线：1.19.2 最新 Forge（43.5.x → eventbus 6.0.3）；另外用 eventbus 6.0.5 再跑一遍做兼容验证
+# 基线：1.18.2 最新 Forge（40.3.x → eventbus 5.0.3）；再带 -Deventbus.namelisteners=true 跑一遍
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -22,27 +22,18 @@ function Find-Jar([string]$group, [string]$artifact, [string]$version) {
 }
 
 $jars = @(
-    (Find-Jar 'net.minecraftforge' 'eventbus' '6.0.3'),
-    (Find-Jar 'cpw.mods' 'modlauncher' '10.0.8'),
+    (Find-Jar 'net.minecraftforge' 'eventbus' '5.0.3'),
+    (Find-Jar 'cpw.mods' 'modlauncher' '9.1.3'),
     (Find-Jar 'org.apache.logging.log4j' 'log4j-api' '2.17.1'),
     (Find-Jar 'org.ow2.asm' 'asm' '9.7.1'),
     (Find-Jar 'org.ow2.asm' 'asm-tree' '9.7.1'),
     (Find-Jar 'org.ow2.asm' 'asm-analysis' '9.7.1'),
     (Find-Jar 'org.jetbrains' 'annotations' '13.0'),
     (Find-Jar 'net.jodah' 'typetools' '0.6.3'),
-    (Find-Jar 'net.minecraftforge' 'forgespi' '6.0.0')
+    (Find-Jar 'net.minecraftforge' 'forgespi' '4.0.15-4.x')
 )
 $cp = $jars -join ';'
 Set-Content (Join-Path $PSScriptRoot 'cp.txt') $cp -Encoding ascii
-
-# 兼容用的 classpath：把 eventbus 6.0.3 换成 6.0.5（1.20.1 早期 Forge 带的是它）
-$cpCompat = $cp
-try {
-    $old = Find-Jar 'net.minecraftforge' 'eventbus' '6.0.5'
-    $cpCompat = ($cp -split ';' | ForEach-Object { if ($_ -match 'eventbus-6\.0\.3\.jar') { $old } else { $_ } }) -join ';'
-} catch {
-    Write-Host "(eventbus 6.0.5 not available, skip compat run)"
-}
 
 $out = Join-Path $PSScriptRoot 'out'
 Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
@@ -52,21 +43,16 @@ $sources = @()
 $sources += Get-ChildItem (Join-Path $root 'src\main\java') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
 $sources += Get-ChildItem (Join-Path $PSScriptRoot 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
 
-Write-Host "compiling $($sources.Count) sources (eventbus 6.0.3) ..."
+Write-Host "compiling $($sources.Count) sources (eventbus 5.0.3) ..."
 & javac --release 17 -encoding UTF-8 -cp $cp -d $out $sources
 if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 
-Write-Host "running harness (eventbus 6.0.3) ..."
+Write-Host "running harness (eventbus 5.0.3) ..."
 & java -cp "$cp;$out" harness.Harness
 $rc1 = $LASTEXITCODE
 
 Write-Host ""
-Write-Host "running harness (eventbus 6.0.5, compat) ..."
-& java -cp "$cpCompat;$out" harness.Harness
-$rc2 = $LASTEXITCODE
-
-Write-Host ""
-Write-Host "running harness (eventbus 6.0.3, -Deventbus.namelisteners=true) ..."
+Write-Host "running harness (eventbus 5.0.3, -Deventbus.namelisteners=true) ..."
 & java '-Deventbus.namelisteners=true' -cp "$cp;$out" harness.Harness
 $rc3 = $LASTEXITCODE
 
@@ -78,5 +64,5 @@ foreach ($c in $cases) {
     & java -cp "$cp;$out" harness.Bench $c | Where-Object { $_ -match 'ns/' }
 }
 
-Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3)
-exit ($rc1 -bor $rc2 -bor $rc3)
+Write-Host ("rc1=" + $rc1 + " rc3=" + $rc3)
+exit ($rc1 -bor $rc3)

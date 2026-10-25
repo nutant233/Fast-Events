@@ -53,11 +53,6 @@ public final class FastEventsLocator implements IModLocator {
     }
 
     @Override
-    public List<ModFileOrException> scanMods() {
-        return List.of();
-    }
-
-    @Override
     public void scanFile(final IModFile modFile, final Consumer<Path> pathConsumer) {
     }
 

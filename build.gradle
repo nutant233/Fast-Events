@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'io.github.nutant'
-version = '1.19-26.10.1'
+version = '1.18-26.10.1'
 
 base {
     archivesName = 'fastevents'
@@ -23,9 +23,9 @@ repositories {
 
 // 全部 compileOnly：这些类在启动器/游戏运行时都已经存在，jar 里不能打包它们
 dependencies {
-    compileOnly 'net.minecraftforge:eventbus:6.0.3'
-    compileOnly('net.minecraftforge:forgespi:6.0.0') { transitive = false }
-    compileOnly 'cpw.mods:modlauncher:10.0.8'
+    compileOnly 'net.minecraftforge:eventbus:5.0.3'
+    compileOnly('net.minecraftforge:forgespi:4.0.15-4.x') { transitive = false }
+    compileOnly 'cpw.mods:modlauncher:9.1.3'
     compileOnly 'org.ow2.asm:asm:9.7.1'
     compileOnly 'org.ow2.asm:asm-tree:9.7.1'
     compileOnly 'org.ow2.asm:asm-analysis:9.7.1'
