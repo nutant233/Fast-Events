@@ -181,7 +181,8 @@ public final class FastDispatch {
 
     private static void handleException(final IEventBus bus, final Event event, final Holder holder,
                                         final Dispatcher dispatcher, final Dispatcher.Failure failure) {
-        if (bus instanceof EventBus impl) {
+        if (bus instanceof EventBus) {
+            final EventBus impl = (EventBus) bus;
             impl.handleException(impl, event, originalOf(holder, dispatcher), failure.index, failure.getCause());
         }
         FastDispatch.sneakyThrow(failure.getCause());
@@ -434,14 +435,15 @@ public final class FastDispatch {
     }
 
     private static int busId(final IEventBus bus) {
-        if (Access.OK && bus instanceof EventBus impl) {
-            return Access.UNSAFE.getInt(impl, Access.BUSID);
+        if (Access.OK && bus instanceof EventBus) {
+            return Access.UNSAFE.getInt((EventBus) bus, Access.BUSID);
         }
         return Probe.probe(bus);
     }
 
     static boolean isShutdown(final IEventBus bus) {
-        return Access.OK && bus instanceof EventBus impl && Access.UNSAFE.getBooleanVolatile(impl, Access.SHUTDOWN);
+        return Access.OK && bus instanceof EventBus
+                && Access.UNSAFE.getBooleanVolatile((EventBus) bus, Access.SHUTDOWN);
     }
 
     public static int debugGenericSteps() {
@@ -495,7 +497,11 @@ public final class FastDispatch {
 
         @Override
         public boolean equals(final Object other) {
-            return other instanceof Key key && key.type == type && key.busId == busId;
+            if (!(other instanceof Key)) {
+                return false;
+            }
+            final Key key = (Key) other;
+            return key.type == type && key.busId == busId;
         }
 
         @Override
@@ -557,9 +563,11 @@ public final class FastDispatch {
             try {
                 final Object target = Access.UNSAFE.getObject(handler, Access.ASM_HANDLER);
                 final Object subInfo = Access.UNSAFE.getObject(handler, Access.ASM_SUBINFO);
-                if (!(target instanceof IEventListener listener) || !(subInfo instanceof SubscribeEvent info)) {
+                if (!(target instanceof IEventListener) || !(subInfo instanceof SubscribeEvent)) {
                     return null;
                 }
+                final IEventListener listener = (IEventListener) target;
+                final SubscribeEvent info = (SubscribeEvent) subInfo;
                 final Object filter = Access.UNSAFE.getObject(handler, Access.ASM_FILTER);
                 return new DirectListener(listener, handler.toString(), info.receiveCanceled(), filter, handler);
             } catch (final Throwable ignored) {
@@ -592,9 +600,10 @@ public final class FastDispatch {
             }
             IEventListener[] dst = null;
             for (int i = 0; i < src.length; i++) {
-                if (!(src[i] instanceof ASMEventHandler handler)) {
+                if (!(src[i] instanceof ASMEventHandler)) {
                     continue;
                 }
+                final ASMEventHandler handler = (ASMEventHandler) src[i];
                 final DirectListener direct = DirectListener.of(handler);
                 if (direct == null) {
                     continue;

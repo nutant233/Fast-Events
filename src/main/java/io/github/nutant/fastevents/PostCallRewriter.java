@@ -47,10 +47,12 @@ public final class PostCallRewriter {
     public static boolean referencesBus(final ClassNode classNode) {
         for (final MethodNode method : classNode.methods) {
             for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (insn instanceof FieldInsnNode field && insn.getOpcode() == Opcodes.GETSTATIC && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
+                final FieldInsnNode field = as(insn, FieldInsnNode.class);
+                if (field != null && insn.getOpcode() == Opcodes.GETSTATIC && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
                     return true;
                 }
-                if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
+                final MethodInsnNode call = as(insn, MethodInsnNode.class);
+                if (call != null && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
                     return true;
                 }
             }
@@ -79,20 +81,24 @@ public final class PostCallRewriter {
             return null;
         }
         final AbstractInsnNode source = value.insns.iterator().next();
-        if (source.getOpcode() == Opcodes.NEW && source instanceof TypeInsnNode type) {
-            return type;
+        final TypeInsnNode created = as(source, TypeInsnNode.class);
+        if (created != null && source.getOpcode() == Opcodes.NEW) {
+            return created;
         }
         if (source.getOpcode() == Opcodes.DUP) {
             final AbstractInsnNode prev = source.getPrevious();
-            return prev != null && prev.getOpcode() == Opcodes.NEW && prev instanceof TypeInsnNode type ? type : null;
+            final TypeInsnNode duplicated = prev == null ? null : as(prev, TypeInsnNode.class);
+            return prev != null && prev.getOpcode() == Opcodes.NEW && duplicated != null ? duplicated : null;
         }
-        if (source instanceof MethodInsnNode init && init.getOpcode() == Opcodes.INVOKESPECIAL && "<init>".equals(init.name)) {
+        final MethodInsnNode init = as(source, MethodInsnNode.class);
+        if (init != null && init.getOpcode() == Opcodes.INVOKESPECIAL && "<init>".equals(init.name)) {
             if (receiver == null) {
                 return null;
             }
             for (AbstractInsnNode insn = receiver.getNext(); insn != null && insn != call; insn = insn.getNext()) {
-                if (insn.getOpcode() == Opcodes.NEW && insn instanceof TypeInsnNode type && type.desc.equals(init.owner)) {
-                    return type;
+                final TypeInsnNode matched = as(insn, TypeInsnNode.class);
+                if (matched != null && insn.getOpcode() == Opcodes.NEW && matched.desc.equals(init.owner)) {
+                    return matched;
                 }
             }
         }
@@ -122,7 +128,8 @@ public final class PostCallRewriter {
         final AbstractInsnNode[] snapshot = method.instructions.toArray();
         for (int i = 0; i < snapshot.length; i++) {
             final AbstractInsnNode insn = snapshot[i];
-            if (!(insn instanceof MethodInsnNode call) || insn.getOpcode() != Opcodes.INVOKEINTERFACE) {
+            final MethodInsnNode call = as(insn, MethodInsnNode.class);
+            if (call == null || insn.getOpcode() != Opcodes.INVOKEINTERFACE) {
                 continue;
             }
             if (!EVENTBUS.equals(call.owner) || !isRewriteTarget(call)) {
@@ -204,7 +211,8 @@ public final class PostCallRewriter {
 
     private static AbstractInsnNode receiverInsn(final AbstractInsnNode call) {
         for (AbstractInsnNode insn = call.getPrevious(); insn != null; insn = insn.getPrevious()) {
-            if (insn.getOpcode() == Opcodes.GETSTATIC && insn instanceof FieldInsnNode field && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
+            final FieldInsnNode field = as(insn, FieldInsnNode.class);
+            if (field != null && insn.getOpcode() == Opcodes.GETSTATIC && BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name)) {
                 return insn;
             }
         }
@@ -230,7 +238,8 @@ public final class PostCallRewriter {
                 sawNew = true;
                 continue;
             }
-            if (insn instanceof MethodInsnNode method) {
+            final MethodInsnNode method = as(insn, MethodInsnNode.class);
+            if (method != null) {
                 if (method.getOpcode() == Opcodes.INVOKESPECIAL && "<init>".equals(method.name) && !sawInit) {
                     sawInit = true;
                     continue;
@@ -244,39 +253,48 @@ public final class PostCallRewriter {
         return sawNew && sawInit;
     }
 
-    private static boolean isPure(final int opcode) {
-        return switch (opcode) {
-            case Opcodes.NEW, Opcodes.DUP, Opcodes.DUP_X1, Opcodes.DUP2, Opcodes.SWAP,
-                 Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.LLOAD, Opcodes.FLOAD, Opcodes.DLOAD,
-                 Opcodes.ACONST_NULL,
-                 Opcodes.ICONST_M1, Opcodes.ICONST_0, Opcodes.ICONST_1, Opcodes.ICONST_2,
-                 Opcodes.ICONST_3, Opcodes.ICONST_4, Opcodes.ICONST_5,
-                 Opcodes.LCONST_0, Opcodes.LCONST_1,
-                 Opcodes.FCONST_0, Opcodes.FCONST_1, Opcodes.FCONST_2,
-                 Opcodes.DCONST_0, Opcodes.DCONST_1,
-                 Opcodes.BIPUSH, Opcodes.SIPUSH, Opcodes.LDC,
-                 Opcodes.GETSTATIC, Opcodes.GETFIELD,
-                 Opcodes.ANEWARRAY, Opcodes.NEWARRAY, Opcodes.ARRAYLENGTH,
-                 Opcodes.AALOAD, Opcodes.BALOAD, Opcodes.CALOAD, Opcodes.SALOAD,
-                 Opcodes.IALOAD, Opcodes.LALOAD, Opcodes.FALOAD, Opcodes.DALOAD,
-                 Opcodes.CHECKCAST, Opcodes.INSTANCEOF,
-                 Opcodes.IADD, Opcodes.LADD, Opcodes.FADD, Opcodes.DADD,
-                 Opcodes.ISUB, Opcodes.LSUB, Opcodes.FSUB, Opcodes.DSUB,
-                 Opcodes.IMUL, Opcodes.LMUL, Opcodes.FMUL, Opcodes.DMUL,
-                 Opcodes.IDIV, Opcodes.LDIV, Opcodes.FDIV, Opcodes.DDIV,
-                 Opcodes.IREM, Opcodes.LREM, Opcodes.FREM, Opcodes.DREM,
-                 Opcodes.INEG, Opcodes.LNEG, Opcodes.FNEG, Opcodes.DNEG,
-                 Opcodes.ISHL, Opcodes.LSHL, Opcodes.ISHR, Opcodes.LSHR,
-                 Opcodes.IUSHR, Opcodes.LUSHR, Opcodes.IAND, Opcodes.LAND,
-                 Opcodes.IOR, Opcodes.LOR, Opcodes.IXOR, Opcodes.LXOR,
-                 Opcodes.I2L, Opcodes.I2F, Opcodes.I2D, Opcodes.L2I, Opcodes.L2F, Opcodes.L2D,
-                 Opcodes.F2I, Opcodes.F2L, Opcodes.F2D, Opcodes.D2I, Opcodes.D2L, Opcodes.D2F,
-                 Opcodes.I2B, Opcodes.I2C, Opcodes.I2S,
-                 Opcodes.LCMP, Opcodes.FCMPL, Opcodes.FCMPG, Opcodes.DCMPL, Opcodes.DCMPG -> true;
-            default -> false;
-        };
+    private static final boolean[] PURE = new boolean[256];
+
+    static {
+        for (final int opcode : new int[]{
+                Opcodes.NEW, Opcodes.DUP, Opcodes.DUP_X1, Opcodes.DUP2, Opcodes.SWAP,
+                Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.LLOAD, Opcodes.FLOAD, Opcodes.DLOAD,
+                Opcodes.ACONST_NULL,
+                Opcodes.ICONST_M1, Opcodes.ICONST_0, Opcodes.ICONST_1, Opcodes.ICONST_2,
+                Opcodes.ICONST_3, Opcodes.ICONST_4, Opcodes.ICONST_5,
+                Opcodes.LCONST_0, Opcodes.LCONST_1,
+                Opcodes.FCONST_0, Opcodes.FCONST_1, Opcodes.FCONST_2,
+                Opcodes.DCONST_0, Opcodes.DCONST_1,
+                Opcodes.BIPUSH, Opcodes.SIPUSH, Opcodes.LDC,
+                Opcodes.GETSTATIC, Opcodes.GETFIELD,
+                Opcodes.ANEWARRAY, Opcodes.NEWARRAY, Opcodes.ARRAYLENGTH,
+                Opcodes.AALOAD, Opcodes.BALOAD, Opcodes.CALOAD, Opcodes.SALOAD,
+                Opcodes.IALOAD, Opcodes.LALOAD, Opcodes.FALOAD, Opcodes.DALOAD,
+                Opcodes.CHECKCAST, Opcodes.INSTANCEOF,
+                Opcodes.IADD, Opcodes.LADD, Opcodes.FADD, Opcodes.DADD,
+                Opcodes.ISUB, Opcodes.LSUB, Opcodes.FSUB, Opcodes.DSUB,
+                Opcodes.IMUL, Opcodes.LMUL, Opcodes.FMUL, Opcodes.DMUL,
+                Opcodes.IDIV, Opcodes.LDIV, Opcodes.FDIV, Opcodes.DDIV,
+                Opcodes.IREM, Opcodes.LREM, Opcodes.FREM, Opcodes.DREM,
+                Opcodes.INEG, Opcodes.LNEG, Opcodes.FNEG, Opcodes.DNEG,
+                Opcodes.ISHL, Opcodes.LSHL, Opcodes.ISHR, Opcodes.LSHR,
+                Opcodes.IUSHR, Opcodes.LUSHR, Opcodes.IAND, Opcodes.LAND,
+                Opcodes.IOR, Opcodes.LOR, Opcodes.IXOR, Opcodes.LXOR,
+                Opcodes.I2L, Opcodes.I2F, Opcodes.I2D, Opcodes.L2I, Opcodes.L2F, Opcodes.L2D,
+                Opcodes.F2I, Opcodes.F2L, Opcodes.F2D, Opcodes.D2I, Opcodes.D2L, Opcodes.D2F,
+                Opcodes.I2B, Opcodes.I2C, Opcodes.I2S,
+                Opcodes.LCMP, Opcodes.FCMPL, Opcodes.FCMPG, Opcodes.DCMPL, Opcodes.DCMPG}) {
+            PURE[opcode] = true;
+        }
     }
 
+    private static boolean isPure(final int opcode) {
+        return opcode >= 0 && opcode < PURE.length && PURE[opcode];
+    }
+
+    private static <T> T as(final Object value, final Class<T> type) {
+        return type.isInstance(value) ? type.cast(value) : null;
+    }
     private static void insertGuard(final MethodNode method, final String owner, final String fieldName,
                                     final AbstractInsnNode receiver, final AbstractInsnNode call,
                                     final String eventInternalName, final boolean discarded) {
@@ -304,7 +322,8 @@ public final class PostCallRewriter {
 
     private static boolean mentionsPost(final MethodNode method) {
         for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-            if (insn instanceof MethodInsnNode call && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
+            final MethodInsnNode call = as(insn, MethodInsnNode.class);
+            if (call != null && insn.getOpcode() == Opcodes.INVOKEINTERFACE && EVENTBUS.equals(call.owner) && isRewriteTarget(call)) {
                 return true;
             }
         }
@@ -395,7 +414,8 @@ public final class PostCallRewriter {
             return false;
         }
         final AbstractInsnNode source = value.insns.iterator().next();
-        if (source.getOpcode() != Opcodes.GETSTATIC || !(source instanceof FieldInsnNode field)) {
+        final FieldInsnNode field = as(source, FieldInsnNode.class);
+        if (field == null || source.getOpcode() != Opcodes.GETSTATIC) {
             return false;
         }
         return BUS_OWNER.equals(field.owner) && BUS_FIELD.equals(field.name) && BUS_DESC.equals(field.desc);

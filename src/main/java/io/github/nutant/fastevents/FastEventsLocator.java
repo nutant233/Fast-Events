@@ -10,8 +10,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.jar.Manifest;
 import java.util.function.Consumer;
 
 public final class FastEventsLocator implements IModLocator {
@@ -53,12 +56,22 @@ public final class FastEventsLocator implements IModLocator {
     }
 
     @Override
-    public List<ModFileOrException> scanMods() {
-        return List.of();
+    public List<IModFile> scanMods() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public Path findPath(final IModFile modFile, final String... path) {
+        return null;
     }
 
     @Override
     public void scanFile(final IModFile modFile, final Consumer<Path> pathConsumer) {
+    }
+
+    @Override
+    public Optional<Manifest> findManifest(final Path file) {
+        return Optional.empty();
     }
 
     @Override

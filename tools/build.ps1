@@ -1,5 +1,9 @@
-# 离线编译 + 运行 harness（不需要 Gradle、不需要 Minecraft）
-# 基线：1.19.2 最新 Forge（43.5.x → eventbus 6.0.3）；另外用 eventbus 6.0.5 再跑一遍做兼容验证
+# Build and verify the 1.16.5 branch.
+#   1) main sources compile to Java 8 bytecode (1.16.5 runs on Java 8)
+#   2) the harness (Java 17, development only) checks rewriting and dispatch semantics
+#   3) tools/src8 runs on a real Java 8 runtime: it proves the ClassLoader-based dispatcher
+#      definition works there, and measures the numbers used in the README
+# ASCII only on purpose: Windows PowerShell reads BOM-less scripts as ANSI.
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -21,61 +25,77 @@ function Find-Jar([string]$group, [string]$artifact, [string]$version) {
     throw "missing $group`:$artifact`:$version (gradle cache and tools\deps)"
 }
 
+function Find-Java8 {
+    if ($env:JAVA8_HOME) { return (Join-Path $env:JAVA8_HOME 'bin\java.exe') }
+    foreach ($dir in 'C:\Program Files\Zulu\zulu-8', 'C:\Program Files\Java\jdk1.8.0_202') {
+        $exe = Join-Path $dir 'bin\java.exe'
+        if (Test-Path $exe) { return $exe }
+    }
+    return $null
+}
+
 $jars = @(
-    (Find-Jar 'net.minecraftforge' 'eventbus' '6.0.3'),
-    (Find-Jar 'cpw.mods' 'modlauncher' '10.0.8'),
-    (Find-Jar 'org.apache.logging.log4j' 'log4j-api' '2.17.1'),
-    (Find-Jar 'org.ow2.asm' 'asm' '9.7.1'),
-    (Find-Jar 'org.ow2.asm' 'asm-tree' '9.7.1'),
-    (Find-Jar 'org.ow2.asm' 'asm-analysis' '9.7.1'),
+    (Find-Jar 'net.minecraftforge' 'eventbus' '4.0.0'),
+    (Find-Jar 'cpw.mods' 'modlauncher' '8.1.3'),
+    (Find-Jar 'org.apache.logging.log4j' 'log4j-api' '2.15.0'),
+    (Find-Jar 'org.ow2.asm' 'asm' '9.6'),
+    (Find-Jar 'org.ow2.asm' 'asm-tree' '9.6'),
+    (Find-Jar 'org.ow2.asm' 'asm-analysis' '9.6'),
     (Find-Jar 'org.jetbrains' 'annotations' '13.0'),
     (Find-Jar 'net.jodah' 'typetools' '0.6.3'),
-    (Find-Jar 'net.minecraftforge' 'forgespi' '6.0.0')
+    (Find-Jar 'net.minecraftforge' 'forgespi' '3.2.0')
 )
 $cp = $jars -join ';'
 Set-Content (Join-Path $PSScriptRoot 'cp.txt') $cp -Encoding ascii
-
-# 兼容用的 classpath：把 eventbus 6.0.3 换成 6.0.5（1.20.1 早期 Forge 带的是它）
-$cpCompat = $cp
-try {
-    $old = Find-Jar 'net.minecraftforge' 'eventbus' '6.0.5'
-    $cpCompat = ($cp -split ';' | ForEach-Object { if ($_ -match 'eventbus-6\.0\.3\.jar') { $old } else { $_ } }) -join ';'
-} catch {
-    Write-Host "(eventbus 6.0.5 not available, skip compat run)"
-}
 
 $out = Join-Path $PSScriptRoot 'out'
 Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $out | Out-Null
 
-$sources = @()
-$sources += Get-ChildItem (Join-Path $root 'src\main\java') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
-$sources += Get-ChildItem (Join-Path $PSScriptRoot 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName }
+# 1) main sources: Java 8 bytecode. -source/-target instead of --release, because --release 8 hides
+#    sun.misc.Unsafe and the field offsets it provides are on the hot path.
+$main = @(Get-ChildItem (Join-Path $root 'src\main\java') -Recurse -Filter *.java | ForEach-Object { $_.FullName })
+Write-Host "compiling $($main.Count) main sources (java 8 bytecode, eventbus 4.0.0) ..."
+& javac -source 8 -target 8 -encoding UTF-8 -nowarn -Xlint:-options -cp $cp -d $out $main
+if ($LASTEXITCODE -ne 0) { throw "javac (main) failed" }
 
-Write-Host "compiling $($sources.Count) sources (eventbus 6.0.3) ..."
-& javac --release 17 -encoding UTF-8 -cp $cp -d $out $sources
-if ($LASTEXITCODE -ne 0) { throw "javac failed" }
+# 2) harness: Java 17, development only, compiled against the main classes
+$harnessOut = Join-Path $PSScriptRoot 'harness-out'
+Remove-Item $harnessOut -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $harnessOut | Out-Null
+$harness = @(Get-ChildItem (Join-Path $PSScriptRoot 'src') -Recurse -Filter *.java | ForEach-Object { $_.FullName })
+Write-Host "compiling $($harness.Count) harness sources (--release 17) ..."
+& javac --release 17 -encoding UTF-8 -nowarn -cp "$cp;$out" -d $harnessOut $harness
+if ($LASTEXITCODE -ne 0) { throw "javac (harness) failed" }
 
-Write-Host "running harness (eventbus 6.0.3) ..."
-& java -cp "$cp;$out" harness.Harness
+Write-Host "running harness (eventbus 4.0.0) ..."
+& java -cp "$cp;$out;$harnessOut" harness.Harness
 $rc1 = $LASTEXITCODE
 
 Write-Host ""
-Write-Host "running harness (eventbus 6.0.5, compat) ..."
-& java -cp "$cpCompat;$out" harness.Harness
+Write-Host "running harness (eventbus 4.0.0, -Deventbus.namelisteners=true) ..."
+& java '-Deventbus.namelisteners=true' -cp "$cp;$out;$harnessOut" harness.Harness
 $rc2 = $LASTEXITCODE
 
-Write-Host ""
-Write-Host "running harness (eventbus 6.0.3, -Deventbus.namelisteners=true) ..."
-& java '-Deventbus.namelisteners=true' -cp "$cp;$out" harness.Harness
-$rc3 = $LASTEXITCODE
+# 3) Java 8 smoke test and timing
+$java8 = Find-Java8
+$rc3 = 0
+if ($java8) {
+    $smokeOut = Join-Path $PSScriptRoot 'smoke-out'
+    Remove-Item $smokeOut -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $smokeOut | Out-Null
+    $smoke = @(Get-ChildItem (Join-Path $PSScriptRoot 'src8') -Recurse -Filter *.java | ForEach-Object { $_.FullName })
+    Write-Host ""
+    Write-Host "compiling $($smoke.Count) smoke sources (java 8) ..."
+    & javac -source 8 -target 8 -encoding UTF-8 -nowarn -Xlint:-options -cp "$cp;$out" -d $smokeOut $smoke (Join-Path $PSScriptRoot 'src\net\minecraftforge\common\MinecraftForge.java')
+    if ($LASTEXITCODE -ne 0) { throw "javac (smoke) failed" }
+    Write-Host "running smoke on Java 8 ($java8) ..."
+    & $java8 -cp "$cp;$out;$smokeOut" smoke.Smoke
+    $rc3 = $LASTEXITCODE
 
-Write-Host ""
-Write-Host "bench（一个用例一个 JVM）:"
-$cases = @('eight-native','eight-fast','eight-markers','eight-dispatch-only','alloc','asm-native','asm-fast','arg1-native','arg1-fast','generic-native','generic-fast','alt-native','alt-shared','alt-split','alt3-native','alt3-shared','alt3-split','asm-parse','asm-wrapper-gen','lambda-gen','unregister-all','unregister-one')
-foreach ($c in $cases) {
-    Write-Host ("  [" + $c + "]")
-    & java -cp "$cp;$out" harness.Bench $c | Where-Object { $_ -match 'ns/' }
+} else {
+    Write-Host ""
+    Write-Host "(Java 8 not found - set JAVA8_HOME to also run the smoke test; skipped)"
 }
 
 Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3)

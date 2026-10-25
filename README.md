@@ -2,22 +2,20 @@
 
 English | [中文](README.zh-CN.md)
 
-Speeds up `MinecraftForge.EVENT_BUS` for Minecraft 1.19.2 / Forge 43.x. Drop-in: no config, no other mods required.
+Speeds up `MinecraftForge.EVENT_BUS` for Minecraft 1.16.5 / Forge 36.x. Drop-in: no config, no other mods required.
 
 Every listener invocation on the Forge bus goes through a generated, fully inlined dispatcher instead of a
 megamorphic loop, and event objects are not even constructed when nobody listens to that event class.
 
 | 8 listeners | vanilla | this mod |
 |---|---|---|
-| `@SubscribeEvent` | 50.5 ns | **9.5 ns** |
-| `addListener(this::x)` (8 different refs) | 52.4 ns | **7.9 ns** |
-| `addListener(consumer)` | 20.6 ns | **5.9 ns** |
-| generic (`AttachCapabilitiesEvent<T>` style) | 49.7 ns | **13.8 ns** |
-| 8 listeners spread over 5 priorities | — | **6.0 ns** |
-| `new Event()` (escaped) | — | ~3.3 ns |
+| `@SubscribeEvent` | 89.3 ns | **18.0 ns** |
+| `addListener(consumer)` | 32.2 ns | **12.2 ns** |
+| 128 listeners on one class | 932.8 ns | **216.3 ns** |
+| 512 listeners on one class | 4372.7 ns | **873.9 ns** |
 
-Per post, on Forge 43.5.x / eventbus 6.0.3, Java 21. Wider listener arrays stay ahead of vanilla too: 128 listeners
-254 ns → **85 ns**, 512 listeners 1421 ns → **556 ns**.
+Per post, on Forge 36.2.x / eventbus 4.0.0, **Java 8** (the runtime 1.16.5 actually uses). Everything is compiled to
+Java 8 bytecode, so the mod loads on the Java 8 that ships with the vanilla launcher.
 
 ## Versions
 
@@ -101,6 +99,7 @@ be determined at load time — those keep the vanilla path.
 
 ## Compatibility
 
-* Minecraft 1.19.2, Forge 43.x — tested with eventbus 6.0.3.
+* Minecraft 1.16.5, Forge 36.x — tested with eventbus 4.0.0.
 * Client and server.
+* Runs on Java 8 or newer.
 * Only replaces call sites; no mixins, no changes to Forge or eventbus classes.

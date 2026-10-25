@@ -394,11 +394,13 @@ public final class Bench {
         }
     }
 
-    static final class NoCacheFactory extends net.minecraftforge.eventbus.ClassLoaderFactory {
+    // eventbus 4.x/5.x have no ClassLoaderFactory; ASMEventHandler#createWrapper does the same class generation
+    static final class NoCacheFactory {
         static final NoCacheFactory INSTANCE = new NoCacheFactory();
 
         Class<?> wrapper(final Method method) throws Exception {
-            return createWrapper(method);
+            return new net.minecraftforge.eventbus.ASMEventHandler(new RegListener(), method, true)
+                    .createWrapper(method);
         }
     }
 

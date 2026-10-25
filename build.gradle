@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'io.github.nutant'
-version = '1.19-26.10.1'
+version = '1.16-26.10.1'
 
 base {
     archivesName = 'fastevents'
@@ -13,6 +13,12 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    // 1.16.5 runs on Java 8, so the shipped bytecode has to be 52.0.
+    // -source/-target instead of --release: sun.misc.Unsafe is not part of the --release 8 API surface,
+    // and the offsets it reads are on the hot path (reflection there would cost more than the mod saves).
+    // tools/build.ps1 runs the same sources on a real Java 8 runtime to prove nothing newer leaked in.
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
 }
 
 
@@ -23,13 +29,13 @@ repositories {
 
 // 全部 compileOnly：这些类在启动器/游戏运行时都已经存在，jar 里不能打包它们
 dependencies {
-    compileOnly 'net.minecraftforge:eventbus:6.0.3'
-    compileOnly('net.minecraftforge:forgespi:6.0.0') { transitive = false }
-    compileOnly 'cpw.mods:modlauncher:10.0.8'
-    compileOnly 'org.ow2.asm:asm:9.7.1'
-    compileOnly 'org.ow2.asm:asm-tree:9.7.1'
-    compileOnly 'org.ow2.asm:asm-analysis:9.7.1'
-    compileOnly 'org.apache.logging.log4j:log4j-api:2.17.1'
+    compileOnly 'net.minecraftforge:eventbus:4.0.0'
+    compileOnly('net.minecraftforge:forgespi:3.2.0') { transitive = false }
+    compileOnly 'cpw.mods:modlauncher:8.1.3'
+    compileOnly 'org.ow2.asm:asm:9.6'
+    compileOnly 'org.ow2.asm:asm-tree:9.6'
+    compileOnly 'org.ow2.asm:asm-analysis:9.6'
+    compileOnly 'org.apache.logging.log4j:log4j-api:2.15.0'
     compileOnly 'net.jodah:typetools:0.6.3'
 }
 

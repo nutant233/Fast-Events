@@ -72,7 +72,8 @@ final class DispatchGen implements Opcodes {
                 }
             }
         };
-        cw.visit(V17, ACC_PUBLIC | ACC_FINAL | ACC_SUPER, name, null, "java/lang/Object", new String[]{DISPATCHER});
+        // 52.0: 1.16.5 runs on Java 8, so a generated class may not claim a newer bytecode level
+        cw.visit(V1_8, ACC_PUBLIC | ACC_FINAL | ACC_SUPER, name, null, "java/lang/Object", new String[]{DISPATCHER});
 
         assignSlots(steps);
         final boolean cancelable = isCancelable(eventType);
@@ -99,10 +100,11 @@ final class DispatchGen implements Opcodes {
     }
 
     private static Step classify(final IEventListener listener, final int index) {
-        if (listener instanceof EventPriority priority) {
-            return new Step(Kind.MARKER, NO_TYPES, NO_ARGS, true, priority, index);
+        if (listener instanceof EventPriority) {
+            return new Step(Kind.MARKER, NO_TYPES, NO_ARGS, true, (EventPriority) listener, index);
         }
-        if (listener instanceof FastDispatch.ConsumerListener<?> consumer) {
+        if (listener instanceof FastDispatch.ConsumerListener<?>) {
+            final FastDispatch.ConsumerListener<?> consumer = (FastDispatch.ConsumerListener<?>) listener;
             if (consumer.filter != null && Generic.DESC != null) {
                 GENERIC_STEPS.incrementAndGet();
                 return new Step(Kind.CONSUMER_FILTERED, new String[]{CONSUMER_DESC, OBJECT_DESC}, new Object[]{consumer.consumer, consumer.filter}, consumer.receiveCancelled, null, index);
@@ -110,7 +112,8 @@ final class DispatchGen implements Opcodes {
             return new Step(Kind.CONSUMER, new String[]{CONSUMER_DESC}, new Object[]{consumer.consumer},
                     consumer.receiveCancelled, null, index);
         }
-        if (listener instanceof FastDispatch.DirectListener direct) {
+        if (listener instanceof FastDispatch.DirectListener) {
+            final FastDispatch.DirectListener direct = (FastDispatch.DirectListener) listener;
             if (direct.filter == null) {
                 return new Step(Kind.ASM, new String[]{LISTENER_DESC}, new Object[]{direct.target}, direct.receiveCancelled, null, index);
             }
@@ -418,11 +421,8 @@ final class DispatchGen implements Opcodes {
             } catch (final Throwable ignored) {
             }
         }
-        try {
-            return MethodHandles.lookup().defineHiddenClass(bytes, true).lookupClass();
-        } catch (final Throwable hidden) {
-            return LOADER.define(name, bytes);
-        }
+        // Java 8 has no Lookup#defineHiddenClass; a child loader per generated class is equivalent in lifetime
+        return LOADER.define(name, bytes);
     }
 
     private static final class Loader extends ClassLoader {

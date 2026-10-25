@@ -1,6 +1,6 @@
 # Fast-Events
 
-为 Minecraft 1.19.2 / Forge 43.x 加速 `MinecraftForge.EVENT_BUS`。开箱即用，不需要配置，也不依赖其它模组。
+为 Minecraft 1.16.5 / Forge 36.x 加速 `MinecraftForge.EVENT_BUS`。开箱即用，不需要配置，也不依赖其它模组。
 
 Forge 总线上的每次监听器调用都会走到一个生成出来的、完全内联的分发器上，不再经过多态循环；某个事件类没人监听时，
 连事件对象都不会构造。
@@ -9,15 +9,13 @@ Forge 总线上的每次监听器调用都会走到一个生成出来的、完�
 
 | 8 个监听器 | 原生 | 本模组 |
 |---|---|---|
-| `@SubscribeEvent` | 50.5 ns | **9.5 ns** |
-| `addListener(this::x)`（8 个不同引用） | 52.4 ns | **7.9 ns** |
-| `addListener(consumer)` | 20.6 ns | **5.9 ns** |
-| 泛型（`AttachCapabilitiesEvent<T>` 那种） | 49.7 ns | **13.8 ns** |
-| 8 个监听器分在 5 个优先级上 | — | **6.0 ns** |
-| `new Event()`（逃逸） | — | ~3.3 ns |
+| `@SubscribeEvent` | 89.3 ns | **18.0 ns** |
+| `addListener(consumer)` | 32.2 ns | **12.2 ns** |
+| 同一个类 128 个监听器 | 932.8 ns | **216.3 ns** |
+| 同一个类 512 个监听器 | 4372.7 ns | **873.9 ns** |
 
-每次 post，环境为 Forge 43.5.x / eventbus 6.0.3、Java 21。监听器更多时同样领先：128 个 254 ns → **85 ns**，
-512 个 1421 ns → **556 ns**。
+每次 post，环境为 Forge 36.2.x / eventbus 4.0.0、**Java 8**（也就是 1.16.5 实际使用的运行时）。整个模组编译为
+Java 8 字节码，原版启动器自带的 Java 8 就能加载。
 
 ## 版本
 
@@ -98,6 +96,7 @@ dispatcher 在某个事件类第一次 post 时惰性生成，该类的监听器
 
 ## 兼容性
 
-* Minecraft 1.19.2、Forge 43.x —— 已验证 eventbus 6.0.3。
+* Minecraft 1.16.5、Forge 36.x —— 已验证 eventbus 4.0.0。
 * 客户端与服务端通用。
+* Java 8 及以上均可运行。
 * 只改写调用点；不使用 Mixin，不修改 Forge 与 eventbus 的任何类。
