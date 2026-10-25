@@ -1,0 +1,144 @@
+<p><strong>Fast-Events</strong> 让 Forge / NeoForge 的事件总线变快。它是一个丢进 <code>mods/</code> 就生效的 jar：不需要配置、没有依赖、
+不用 Mixin、不修改任何其它模组。被它接管的每一次事件发布都变成一条直接、完全内联的调用链，而不是多态循环 &mdash;&mdash; 发布一个
+事件的成本会降到接近你手写调用监听器的程度。</p>
+
+<p>它加速的是<em>所有</em>模组的事件发布，不只是它自己：jar 会改写所有已加载类里的 post 调用点，所以那些大量发布事件的模组
+（tick、方块/实体更新、capability 事件、屏幕事件）无需修改就能变快。</p>
+
+<h2>我该下哪个文件？</h2>
+
+<table>
+  <thead>
+    <tr><th>Minecraft</th><th>加载器</th><th>文件</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
+    <tr><td>1.21.1</td><td>NeoForge 21.1.x</td><td><code>fastevents-1.21-*.jar</code></td></tr>
+  </tbody>
+</table>
+
+<p>每个游戏版本一个 jar，除此之外不需要别的东西。</p>
+
+<h2>它解决什么问题</h2>
+
+<p>两种总线的分发逻辑都是这样：</p>
+
+<pre><code>for (EventListener listener : listeners) {
+    listener.invoke(event);        // 一个调用点，要面对游戏里所有监听器实现类
+}</code></pre>
+
+<p>这一个调用点会看到所有模组注册过的监听器实现，属于「超多态」（megamorphic）：JIT 一个都内联不了，于是每次监听器调用都要付
+一次虚分派，再加上外层的包装层开销。在大整合包里，每 tick 的事件开销大部分就花在这上面，而不是你写的监听器逻辑。</p>
+
+<h2>它做了什么</h2>
+
+<ul>
+  <li><strong>每个调用点一个生成的分发器。</strong> 某个 post 调用点第一次发布某个事件类时，会按该类当时的监听器数组生成一个
+      分发器：<strong>每个监听器一个字段、一条调用指令</strong>。于是每个调用点只见过一种接收者类型，能一路内联到监听器体里。</li>
+  <li><strong>没人监听就不构造事件对象。</strong> 如果某个事件类根本没有监听器，调用点上的 <code>new Event()</code> 会被短路，
+      连对象都不会构造。</li>
+  <li><strong>语义完全一致。</strong> 优先级顺序、phase 标记、取消、泛型类型过滤、异常处理全部与原生一致；生成的代码就是总线原本
+      会做的事的直线展开。</li>
+  <li><strong>缓存是活的。</strong> 监听器数组一变就重建分发器，所以「某个类已经在分发了之后才注册」的监听器同样生效。</li>
+</ul>
+
+<h2>数据</h2>
+
+<p>单位为「每次 post 的纳秒」，单线程，同一个事件类上 8 个监听器，Java 21，越低越好。数据由仓库内自带的基准测试生成。</p>
+
+<table>
+  <thead>
+    <tr><th>Minecraft 1.20.1 / Forge 47.4</th><th>原生</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>@SubscribeEvent</code> 监听器</td><td>49.6 ns</td><td><strong>9.3 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td><code>addListener(this::handle)</code>，8 个不同引用</td><td>46.4 ns</td><td><strong>8.2 ns</strong></td><td>5.7&times;</td></tr>
+    <tr><td><code>addListener(consumer)</code></td><td>15.7 ns</td><td><strong>5.8 ns</strong></td><td>2.7&times;</td></tr>
+    <tr><td>泛型监听器（<code>AttachCapabilitiesEvent&lt;T&gt;</code> 那种）</td><td>52.2 ns</td><td><strong>12.4 ns</strong></td><td>4.2&times;</td></tr>
+    <tr><td>8 个监听器分在 5 个优先级上</td><td>&mdash;</td><td><strong>5.7 ns</strong></td><td></td></tr>
+    <tr><td>同一个类 128 个监听器</td><td>201 ns</td><td><strong>88 ns</strong></td><td>2.3&times;</td></tr>
+    <tr><td>同一个类 512 个监听器</td><td>1090 ns</td><td><strong>556 ns</strong></td><td>2&times;</td></tr>
+  </tbody>
+</table>
+
+<table>
+  <thead>
+    <tr><th>Minecraft 1.21.1 / NeoForge 21.1</th><th>原生</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>@SubscribeEvent</code> 监听器</td><td>31.2 ns</td><td><strong>8.8 ns</strong></td><td>3.5&times;</td></tr>
+    <tr><td><code>addListener(consumer)</code></td><td>19.0 ns</td><td><strong>8.8 ns</strong></td><td>2.2&times;</td></tr>
+    <tr><td><code>new Event()</code>（逃逸，该类完全没有监听器）</td><td>&mdash;</td><td><strong>~2.4 ns</strong></td><td></td></tr>
+  </tbody>
+</table>
+
+<p>真实整合包里监听器数组通常更长，这些情况同样优于原生。绝对收益取决于你的包有多频繁地发布事件：一次监听器调用从 50 ns 降到
+9 ns，在每 tick 累计几千次的规模下就是明显的差别。</p>
+
+<h2>安装</h2>
+
+<ol>
+  <li>安装 Minecraft 1.20.1 + Forge 47.x，或 Minecraft 1.21.1 + NeoForge 21.1.x。</li>
+  <li>把对应的 jar 放进 <code>mods/</code>。（放在启动器 classpath 上也可以。）</li>
+  <li>就这样。没有配置文件，没有依赖，不需要任何额外设置。</li>
+</ol>
+
+<p>客户端和服务端都支持，两边都能受益。开服的话装在服务端即可；连进来的客户端不装也没影响（装了会有一点额外收益）。</p>
+
+<h2>可选设置</h2>
+
+<p>只在排查问题时有用，正常游玩保持默认即可。</p>
+
+<table>
+  <thead>
+    <tr><th>系统属性</th><th>作用</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>-Dfastevents.guard=false</code></td><td>关闭「没人监听就跳过 <code>new Event()</code>」的短路。</td></tr>
+    <tr><td><code>-Dfastevents.audit=true</code></td><td>每次 post 核对缓存的监听器数组，并记录晚注册。</td></tr>
+    <tr><td><code>-Dfastevents.diag=true</code></td><td>仅 1.20.1：记录那些经过「未被改写的路径」注册的监听器。</td></tr>
+  </tbody>
+</table>
+
+<h2>兼容性</h2>
+
+<ul>
+  <li><strong>Forge 47.x</strong>（1.20.1，event bus 6.0.x / 6.2.x）与 <strong>NeoForge 21.1.x</strong>（1.21.1，event bus
+      8.0.x）。其它 1.20.x / 1.21.x 版本不保证。</li>
+  <li>不使用 Mixin，不使用 access transformer，也没有会和其它性能模组抢的 coremod 入口。它是一个 launch plugin，只替换
+      <code>post</code>/<code>addListener</code> 调用点。</li>
+  <li>不修改 Forge、NeoForge 或 event bus 自身的类，也不碰其它模组的监听器与注册数据。</li>
+  <li>随时可以删除 &mdash;&mdash; 它不会往存档或配置里写任何东西。</li>
+  <li>不加速、仍走原生路径（因此不存在行为差异）：1.21 的 <code>post(EventPriority, Event)</code>；两个版本中总线引用在加载期
+      无法确定的 <code>post</code> 调用点。</li>
+</ul>
+
+<h2>常见问题</h2>
+
+<h3>会改变监听器执行顺序，或者弄坏 <code>@Cancelable</code> 事件吗？</h3>
+<p>不会。生成的分发器严格按总线给出的数组顺序（也就是按优先级排好的顺序）访问监听器，取消判断的位置也与原生一致。依赖顺序或
+「取消后提前返回」的模组行为完全相同。</p>
+
+<h3>只有少数几个模组的包有用吗？</h3>
+<p>收益与事件流量成正比。1.20.1 的大型整合包收益最明显；接近原版的实例也有一点收益，因为原版自己每 tick 也在发布事件。</p>
+
+<h3>会和其它性能模组冲突吗？</h3>
+<p>它不 patch 事件类，所以那些修改总线的观测/优化类模组不受影响。如果有别的模组也在替换 <code>post</code> 调用点，两个模组会各自
+包装同一个调用点，结果依旧正确，只是多一层间接。</p>
+
+<h3>为什么这个功能不直接做进 Forge / NeoForge？</h3>
+<p>它需要在加载期改写所有模组的字节码，而加载器没法在不改变 API 契约的前提下对自己的分发循环做这件事。作为 launch plugin
+就可以完全不碰 API 地做到。</p>
+
+<h3>整合包能用吗？</h3>
+<p>能。把与整合包游戏版本匹配的 jar 放进 <code>mods/</code> 即可。整合包恰恰是收益最大的场景，因为每个事件类上的监听器数量会随
+模组数增长。</p>
+
+<h2>链接</h2>
+
+<ul>
+  <li>源码、issue 与基准测试工具：见本页关联的 GitHub 仓库。</li>
+  <li>协议：GNU LGPL 3.0。</li>
+</ul>
+
+<p><em>以上数据来自仓库自带的基准测试，在空闲机器上测得；实际效果取决于你的 CPU、整合包以及它产生的事件流量。</em></p>

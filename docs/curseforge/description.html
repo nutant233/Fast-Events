@@ -1,0 +1,159 @@
+<p><strong>Fast-Events</strong> makes the Forge / NeoForge event bus fast. It is a drop-in jar: no configuration, no
+dependencies, no Mixin, no changes to any other mod. Every event post that it takes over becomes a direct, fully
+inlined call chain instead of a megamorphic loop &mdash; so the cost of posting an event drops to roughly what it
+costs to call your listeners by hand.</p>
+
+<p>It accelerates <em>every</em> mod's event posts, not only its own: the jar rewrites post call sites in all loaded
+classes, so mods that post a lot (ticking, block/entity updates, capability events, screen events) get faster without
+being modified.</p>
+
+<h2>Which file do I need?</h2>
+
+<table>
+  <thead>
+    <tr><th>Minecraft</th><th>Loader</th><th>File</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1.20.1</td><td>Forge 47.x</td><td><code>fastevents-1.20-*.jar</code></td></tr>
+    <tr><td>1.21.1</td><td>NeoForge 21.1.x</td><td><code>fastevents-1.21-*.jar</code></td></tr>
+  </tbody>
+</table>
+
+<p>One jar per game version. Nothing else is required.</p>
+
+<h2>The problem it solves</h2>
+
+<p>Both bus implementations dispatch like this:</p>
+
+<pre><code>for (EventListener listener : listeners) {
+    listener.invoke(event);        // one call site, every listener class in the game
+}</code></pre>
+
+<p>That single call site sees every listener implementation that any mod ever registered, so it is megamorphic: the
+JIT cannot inline any of them, and every single listener call pays a virtual dispatch plus the wrapper layers around
+it. On a big modpack most of the per-tick event cost is exactly this overhead, not your actual listener code.</p>
+
+<h2>What Fast-Events does</h2>
+
+<ul>
+  <li><strong>Per call site, generated dispatcher.</strong> The first time a post site fires for an event class, a
+      dispatcher is generated for that class's listener array: one field and one call instruction per listener. Each
+      call site therefore sees exactly one receiver type and inlines all the way down into the listener body.</li>
+  <li><strong>No event object when nobody listens.</strong> If an event class has no listeners, the <code>new
+      Event()</code> at the call site is short-circuited and never constructed.</li>
+  <li><strong>Same semantics.</strong> Priority order, phase markers, cancellation, generic type filters and exception
+      handling behave exactly as in vanilla; the generated code is a straight-line expansion of what the bus would
+      have done.</li>
+  <li><strong>Live cache.</strong> Dispatchers are rebuilt when a listener array changes, so listeners registered late
+      (after a class was already dispatching) still take effect.</li>
+</ul>
+
+<h2>Numbers</h2>
+
+<p>Nanoseconds per post, single thread, 8 listeners on one event class, Java 21. Lower is better. Measured with the
+benchmark harness in the repository.</p>
+
+<table>
+  <thead>
+    <tr><th>Minecraft 1.20.1 / Forge 47.4</th><th>vanilla</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>@SubscribeEvent</code> listeners</td><td>49.6 ns</td><td><strong>9.3 ns</strong></td><td>5.3&times;</td></tr>
+    <tr><td><code>addListener(this::handle)</code>, 8 different refs</td><td>46.4 ns</td><td><strong>8.2 ns</strong></td><td>5.7&times;</td></tr>
+    <tr><td><code>addListener(consumer)</code></td><td>15.7 ns</td><td><strong>5.8 ns</strong></td><td>2.7&times;</td></tr>
+    <tr><td>generic listeners (<code>AttachCapabilitiesEvent&lt;T&gt;</code> style)</td><td>52.2 ns</td><td><strong>12.4 ns</strong></td><td>4.2&times;</td></tr>
+    <tr><td>8 listeners spread over 5 priorities</td><td>&mdash;</td><td><strong>5.7 ns</strong></td><td></td></tr>
+    <tr><td>128 listeners on one class</td><td>201 ns</td><td><strong>88 ns</strong></td><td>2.3&times;</td></tr>
+    <tr><td>512 listeners on one class</td><td>1090 ns</td><td><strong>556 ns</strong></td><td>2&times;</td></tr>
+  </tbody>
+</table>
+
+<table>
+  <thead>
+    <tr><th>Minecraft 1.21.1 / NeoForge 21.1</th><th>vanilla</th><th>Fast-Events</th><th></th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>@SubscribeEvent</code> listeners</td><td>31.2 ns</td><td><strong>8.8 ns</strong></td><td>3.5&times;</td></tr>
+    <tr><td><code>addListener(consumer)</code></td><td>19.0 ns</td><td><strong>8.8 ns</strong></td><td>2.2&times;</td></tr>
+    <tr><td><code>new Event()</code>, escaped (no listeners at all)</td><td>&mdash;</td><td><strong>~2.4 ns</strong></td><td></td></tr>
+  </tbody>
+</table>
+
+<p>Wider listener arrays are the common case in real packs, and they stay ahead of vanilla too. Absolute savings scale
+with how often a pack posts events: a listener call that used to cost 50 ns and now costs 9 ns matters when it runs
+thousands of times per tick across a pack.</p>
+
+<h2>Install</h2>
+
+<ol>
+  <li>Install Minecraft 1.20.1 with Forge 47.x, or Minecraft 1.21.1 with NeoForge 21.1.x.</li>
+  <li>Put the matching jar into your <code>mods/</code> folder. (It also works on the launcher classpath.)</li>
+  <li>That's it. No config file, no dependencies, nothing to set up.</li>
+</ol>
+
+<p>Client and server are both supported, and both sides benefit. For a server, install it on the server; clients that
+join do not need it (but get a small gain if they have it too).</p>
+
+<h2>Optional settings</h2>
+
+<p>Only useful when debugging; the default configuration is what you want for playing.</p>
+
+<table>
+  <thead>
+    <tr><th>System property</th><th>Effect</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>-Dfastevents.guard=false</code></td><td>Disable the "skip <code>new Event()</code> when nobody listens" shortcut.</td></tr>
+    <tr><td><code>-Dfastevents.audit=true</code></td><td>Verify the cached listener array on every post and log late registrations.</td></tr>
+    <tr><td><code>-Dfastevents.diag=true</code></td><td>1.20.1 only: log listeners registered through a path that is not rewritten.</td></tr>
+  </tbody>
+</table>
+
+<h2>Compatibility</h2>
+
+<ul>
+  <li><strong>Forge 47.x</strong> (1.20.1, event bus 6.0.x / 6.2.x) and <strong>NeoForge 21.1.x</strong> (1.21.1, event
+      bus 8.0.x). Other 1.20.x / 1.21.x builds are not supported.</li>
+  <li>No Mixin, no access transformers, no coremod entry point that other performance mods fight over. It is a launch
+      plugin that only replaces <code>post</code>/<code>addListener</code> call sites.</li>
+  <li>Does not modify Forge, NeoForge or the event bus classes themselves, and does not touch another mod's listeners
+      or registration data.</li>
+  <li>Safe to remove at any time &mdash; nothing is written to your world or configs.</li>
+  <li>Not accelerated, and left on the vanilla path (so there is no behavioural difference): on 1.21,
+      <code>post(EventPriority, Event)</code>; on both versions, post call sites whose bus reference cannot be
+      resolved at load time.</li>
+</ul>
+
+<h2>FAQ</h2>
+
+<h3>Will it change the order my listeners run in, or break <code>@Cancelable</code> events?</h3>
+<p>No. The generated dispatcher visits listeners in exactly the array order the bus produced (which is the
+priority-sorted order), and cancellation is checked at the same points as in vanilla. Mods that depend on listener
+ordering or on early-out after cancellation behave identically.</p>
+
+<h3>Does it help a pack with only a few mods?</h3>
+<p>It helps in proportion to how much event traffic you have. A single-player 1.20.1 kitchen-sink pack sees the biggest
+gain; a nearly vanilla instance still gains a little, because vanilla itself posts events every tick.</p>
+
+<h3>Can it conflict with other performance mods?</h3>
+<p>It does not patch event classes, so observability/optimizer mods that touch the bus are unaffected. If another mod
+also replaces <code>post</code> call sites, both end up wrapping the same call site; the result is still correct, just
+with one extra indirection.</p>
+
+<h3>Why is this not part of Forge / NeoForge itself?</h3>
+<p>It needs to rewrite bytecode at load time for every mod, which is not something the loader can do for its own
+dispatch loop without changing the API contract. As a launch plugin it can do that without touching any API.</p>
+
+<h3>Does it work in a modpack?</h3>
+<p>Yes. Put the correct jar for the pack's game version in <code>mods/</code>. Modpacks are exactly the case where the
+saving matters, because the number of listeners per event class grows with the mod count.</p>
+
+<h2>Links</h2>
+
+<ul>
+  <li>Source, issues and the benchmark harness: GitHub repository linked on this page.</li>
+  <li>License: GNU LGPL 3.0.</li>
+</ul>
+
+<p><em>Numbers above come from the repository's own benchmark harness on a quiet machine; your mileage depends on your
+CPU, your modpack and how much event traffic it generates.</em></p>
