@@ -9,10 +9,10 @@ megamorphic loop, and event objects are not even constructed when nobody listens
 
 | 8 listeners | vanilla | this mod |
 |---|---|---|
-| `@SubscribeEvent` | 89.3 ns | **18.0 ns** |
-| `addListener(consumer)` | 32.2 ns | **12.2 ns** |
-| 128 listeners on one class | 932.8 ns | **216.3 ns** |
-| 512 listeners on one class | 4372.7 ns | **873.9 ns** |
+| `@SubscribeEvent` | 92.5 ns | **15.4 ns** |
+| `addListener(consumer)` | 34.7 ns | **12.5 ns** |
+| 128 listeners on one class | 794 ns | **201 ns** |
+| 512 listeners on one class | 3465 ns | **493 ns** |
 
 Per post, on Forge 36.2.x / eventbus 4.0.0, **Java 8** (the runtime 1.16.5 actually uses). Everything is compiled to
 Java 8 bytecode, so the mod loads on the Java 8 that ships with the vanilla launcher.
@@ -73,7 +73,9 @@ Pick one:
 1. **`mods/`** — drop the jar next to your other mods.
 2. **Launch classpath** — put it on the launcher classpath instead.
 
-`mods/` is the normal way; the jar registers itself as a transformer and is not loaded as a regular mod.
+`mods/` is the normal way; the jar registers itself as a transformer and is not loaded as a regular mod. On Java 8 it
+also exposes its own classes to the game class loader, which is what makes the rewritten call sites work — see
+Compatibility below.
 
 ## Config
 
@@ -101,5 +103,10 @@ be determined at load time — those keep the vanilla path.
 
 * Minecraft 1.16.5, Forge 36.x — tested with eventbus 4.0.0.
 * Client and server.
-* Runs on Java 8 or newer.
+* **Java 8** is the supported runtime. 1.16.5's modlauncher keeps transformer jars in a class loader that is a
+  sibling of the game's own, so a rewritten `post` site can only call back into this mod if its classes are reachable
+  from the game class loader. On Java 8 the mod makes that happen itself; on Java 9+ that is not possible, so there
+  the jar has to be on the launch classpath instead. The log says which of the two happened:
+  `[FastEvents] exposed ... to the game class loader` (active) or
+  `[FastEvents] could not expose this mod to the game class loader` (inactive, and no call site is rewritten).
 * Only replaces call sites; no mixins, no changes to Forge or eventbus classes.

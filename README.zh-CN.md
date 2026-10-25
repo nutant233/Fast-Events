@@ -9,10 +9,10 @@ Forge 总线上的每次监听器调用都会走到一个生成出来的、完�
 
 | 8 个监听器 | 原生 | 本模组 |
 |---|---|---|
-| `@SubscribeEvent` | 89.3 ns | **18.0 ns** |
-| `addListener(consumer)` | 32.2 ns | **12.2 ns** |
-| 同一个类 128 个监听器 | 932.8 ns | **216.3 ns** |
-| 同一个类 512 个监听器 | 4372.7 ns | **873.9 ns** |
+| `@SubscribeEvent` | 92.5 ns | **15.4 ns** |
+| `addListener(consumer)` | 34.7 ns | **12.5 ns** |
+| 同一个类 128 个监听器 | 794 ns | **201 ns** |
+| 同一个类 512 个监听器 | 3465 ns | **493 ns** |
 
 每次 post，环境为 Forge 36.2.x / eventbus 4.0.0、**Java 8**（也就是 1.16.5 实际使用的运行时）。整个模组编译为
 Java 8 字节码，原版启动器自带的 Java 8 就能加载。
@@ -71,7 +71,8 @@ dispatcher 在某个事件类第一次 post 时惰性生成，该类的监听器
 1. **`mods/`** —— 和其它模组放在一起即可。
 2. **启动 classpath** —— 放进启动器的 classpath。
 
-`mods/` 是常规用法；jar 会把自己注册成 transformer，不会作为普通模组加载。
+`mods/` 是常规用法；jar 会把自己注册成 transformer，不会作为普通模组加载。在 Java 8 上它还会把自己的类暴露给游戏
+class loader —— 这是被改写的调用点能跑起来的前提，见下面的「兼容性」。
 
 ## 配置
 
@@ -98,5 +99,9 @@ dispatcher 在某个事件类第一次 post 时惰性生成，该类的监听器
 
 * Minecraft 1.16.5、Forge 36.x —— 已验证 eventbus 4.0.0。
 * 客户端与服务端通用。
-* Java 8 及以上均可运行。
+* 支持 **Java 8**。1.16.5 的 modlauncher 把 transformer jar 放在游戏 class loader 的**兄弟**加载器里，因此被改写的
+  `post` 调用点只有在「本模组的类对游戏 class loader 可见」时才能回调进来。Java 8 上模组会自己完成这一步；Java 9+
+  上做不到，此时需要把 jar 放到启动 classpath。日志会告诉你属于哪种情况：
+  `[FastEvents] exposed ... to the game class loader`（生效）或
+  `[FastEvents] could not expose this mod to the game class loader`（未生效，且不会改写任何调用点）。
 * 只改写调用点；不使用 Mixin，不修改 Forge 与 eventbus 的任何类。

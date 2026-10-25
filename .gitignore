@@ -4,6 +4,7 @@ out/
 tools/out/
 tools/harness-out/
 tools/smoke-out/
+tools/probe-out/
 tools/cp.txt
 tools/deps/
 classes/

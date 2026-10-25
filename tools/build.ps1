@@ -84,13 +84,21 @@ if ($java8) {
     $smokeOut = Join-Path $PSScriptRoot 'smoke-out'
     Remove-Item $smokeOut -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $smokeOut | Out-Null
-    $smoke = @(Get-ChildItem (Join-Path $PSScriptRoot 'src8') -Recurse -Filter *.java | ForEach-Object { $_.FullName })
+    $smoke = @(Get-ChildItem (Join-Path $PSScriptRoot 'src8') -Recurse -Filter *.java | Where-Object { $_.FullName -notmatch '\\probe\\' } | ForEach-Object { $_.FullName })
     Write-Host ""
     Write-Host "compiling $($smoke.Count) smoke sources (java 8) ..."
     & javac -source 8 -target 8 -encoding UTF-8 -nowarn -Xlint:-options -cp "$cp;$out" -d $smokeOut $smoke (Join-Path $PSScriptRoot 'src\net\minecraftforge\common\MinecraftForge.java')
     if ($LASTEXITCODE -ne 0) { throw "javac (smoke) failed" }
+    # probe class for the class loader check: compiled but deliberately NOT on the runtime classpath
+    $probeOut = Join-Path $PSScriptRoot 'probe-out'
+    Remove-Item $probeOut -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $probeOut | Out-Null
+    $probe = @(Get-ChildItem (Join-Path $PSScriptRoot 'src8') -Recurse -Filter Probe.java | ForEach-Object { $_.FullName })
+    & javac -source 8 -target 8 -encoding UTF-8 -nowarn -Xlint:-options -d $probeOut $probe
+    if ($LASTEXITCODE -ne 0) { throw "javac (probe) failed" }
+
     Write-Host "running smoke on Java 8 ($java8) ..."
-    & $java8 -cp "$cp;$out;$smokeOut" smoke.Smoke
+    & $java8 "-Dfastevents.probe.dir=$probeOut" -cp "$cp;$out;$smokeOut" smoke.Smoke
     $rc3 = $LASTEXITCODE
 
 } else {

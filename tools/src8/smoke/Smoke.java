@@ -11,9 +11,18 @@ import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 public final class Smoke {
 
@@ -65,6 +74,8 @@ public final class Smoke {
         FastDispatch.post(privateBus, new Plain(), FastDispatch.holder());
         check(privateHits[0] == 1, "a private bus keeps its own listeners, got " + privateHits[0]);
 
+        loaderMechanism();
+
         System.out.println();
         System.out.println("Java " + System.getProperty("java.version")
                 + ", one thread, ns per post, 8 listeners unless stated");
@@ -76,6 +87,73 @@ public final class Smoke {
         System.out.println();
         System.out.println(failures == 0 ? "SMOKE PASSED" : ("SMOKE FAILED: " + failures));
         System.exit(failures == 0 ? 0 : 1);
+    }
+
+    // Reproduces the 1.16.5 class loader shape: a child loader (like modlauncher's TransformingClassLoader)
+    // whose parent is the system class loader, and a class that only exists in a jar appended to that parent
+    // at runtime - exactly what FastEventsPlugin.expose() does with the mod's own jar.
+    private static void loaderMechanism() {
+        final String probeDir = System.getProperty("fastevents.probe.dir");
+        if (probeDir == null) {
+            return;
+        }
+        try {
+            final ClassLoader system = ClassLoader.getSystemClassLoader();
+            final boolean hiddenBefore = !visible(system, "probe.Probe");
+            final File jar = jarOf(probeDir);
+            final Method addURL = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
+            addURL.setAccessible(true);
+            addURL.invoke(system, jar.toURI().toURL());
+            final ClassLoader gameLike = new URLClassLoader(new URL[0], system);
+            final Class<?> probe = Class.forName("probe.Probe", true, gameLike);
+            check(hiddenBefore, "probe class is invisible before the jar is appended");
+            check(probe.getClassLoader() == system, "a child loader like the game's delegates to the parent");
+            check("probe-ok".equals(probe.getMethod("hello").invoke(null)), "the appended jar is loadable and usable");
+            new io.github.nutant.fastevents.FastEventsPlugin();
+            check(true, "launch plugin initialises without throwing");
+        } catch (final Throwable throwable) {
+            check(false, "class loader mechanism: " + throwable);
+        }
+    }
+
+    private static boolean visible(final ClassLoader loader, final String name) {
+        try {
+            Class.forName(name, false, loader);
+            return true;
+        } catch (final Throwable notVisible) {
+            return false;
+        }
+    }
+
+    private static File jarOf(final String classDir) throws Exception {
+        final File dir = new File(classDir);
+        final File jar = File.createTempFile("fastevents-probe", ".jar");
+        jar.deleteOnExit();
+        final JarOutputStream out = new JarOutputStream(new FileOutputStream(jar));
+        addToJar(out, dir, dir);
+        out.close();
+        return jar;
+    }
+
+    private static void addToJar(final JarOutputStream out, final File root, final File file) throws Exception {
+        if (file.isDirectory()) {
+            final File[] children = file.listFiles();
+            if (children != null) {
+                for (final File child : children) {
+                    addToJar(out, root, child);
+                }
+            }
+            return;
+        }
+        final String name = root.toURI().relativize(file.toURI()).getPath();
+        out.putNextEntry(new JarEntry(name));
+        final InputStream in = new FileInputStream(file);
+        final byte[] buffer = new byte[8192];
+        for (int read = in.read(buffer); read > 0; read = in.read(buffer)) {
+            out.write(buffer, 0, read);
+        }
+        in.close();
+        out.closeEntry();
     }
 
     private static void consumers(final IEventBus bus) {
