@@ -86,5 +86,12 @@ public final class TestTarget {
         public FooEvent(final int value) {
             this.value = value;
         }
+
+        // eventbus 4.x/5.x normally gets this override from its EventSubclassTransformer; the harness runs
+        // without it, so the sample declares it to keep the cancellation checks meaningful on every version
+        @Override
+        public boolean isCancelable() {
+            return true;
+        }
     }
 }

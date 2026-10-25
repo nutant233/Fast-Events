@@ -2,23 +2,34 @@
 
 English | [中文](README.zh-CN.md)
 
-Speeds up `MinecraftForge.EVENT_BUS` for Minecraft 1.20.1 / Forge 47.x. Drop-in: no config, no other mods required.
+Speeds up `MinecraftForge.EVENT_BUS` for Minecraft 1.19.2 / Forge 43.x. Drop-in: no config, no other mods required.
 
 Every listener invocation on the Forge bus goes through a generated, fully inlined dispatcher instead of a
 megamorphic loop, and event objects are not even constructed when nobody listens to that event class.
 
 | 8 listeners | vanilla | this mod |
 |---|---|---|
-| `@SubscribeEvent` | 49.6 ns | **9.3 ns** |
-| `addListener(this::x)` (8 different refs) | 46.4 ns | **8.2 ns** |
-| `addListener(consumer)` | 15.7 ns | **5.8 ns** |
-| generic (`AttachCapabilitiesEvent<T>` style) | 52.2 ns | **12.4 ns** |
-| 8 listeners spread over 5 priorities | — | **5.7 ns** |
-| dispatch only (8 native listeners) | 15.7 ns | 12.0 ns |
+| `@SubscribeEvent` | 50.5 ns | **9.5 ns** |
+| `addListener(this::x)` (8 different refs) | 52.4 ns | **7.9 ns** |
+| `addListener(consumer)` | 20.6 ns | **5.9 ns** |
+| generic (`AttachCapabilitiesEvent<T>` style) | 49.7 ns | **13.8 ns** |
+| 8 listeners spread over 5 priorities | — | **6.0 ns** |
 | `new Event()` (escaped) | — | ~3.3 ns |
 
-Per post, on Forge 47.4.x / eventbus 6.2.33, Java 21. Wider listener arrays stay ahead of vanilla too: 128 listeners
-201 ns → **88 ns**, 512 listeners 1090 ns → **556 ns**.
+Per post, on Forge 43.5.x / eventbus 6.0.3, Java 21. Wider listener arrays stay ahead of vanilla too: 128 listeners
+254 ns → **85 ns**, 512 listeners 1421 ns → **556 ns**.
+
+## Versions
+
+One branch per Minecraft version; the code is the same, only the bus and loader it targets differ.
+
+| Minecraft | Loader | Branch |
+|---|---|---|
+| 1.21.1 | NeoForge 21.1.x | `1.21` |
+| 1.20.1 | Forge 47.x | `1.20` |
+| 1.19.2 | Forge 43.x | `1.19` |
+| 1.18.2 | Forge 40.x | `1.18` |
+| 1.16.5 | Forge 36.x | `1.16` |
 
 ## How it works
 
@@ -29,7 +40,7 @@ Instead, each `post` call site caches a dispatcher generated for the listener ar
 listener gets its own field and its own call instruction, so each call site has exactly one receiver type and is
 inlined all the way down into the listener body. Priority markers become `event.setPhase(...)` calls, the
 `isCanceled()` check disappears for non-cancelable events, and registration is taken over as well, so
-`addListener(consumer)` skips Forge's `doCastFilter` / `NamedEventListener` layers.
+`addListener(consumer)` skips Forge's cast-filter and `NamedEventListener` layers.
 
 For 8 consumer listeners at `NORMAL` priority the generated class is essentially this:
 
@@ -53,10 +64,6 @@ public final class Gen0 implements Dispatcher {
     }
 }
 ```
-
-Listeners registered with `@SubscribeEvent` get an `IEventListener` field instead of a `Consumer` — that field holds
-Forge's generated handler with `ASMEventHandler`'s wrapper already stripped, so those listeners save one virtual call
-plus the cancel/filter checks that wrapper used to run.
 
 The dispatcher is built lazily on the first post of an event class and rebuilt when that class's listener array
 changes. A call site that posts more than one event class keeps a cache entry per class.
@@ -94,6 +101,6 @@ be determined at load time — those keep the vanilla path.
 
 ## Compatibility
 
-* Minecraft 1.20.1, Forge 47.x — tested with eventbus 6.0.5 and 6.2.33, and with `-Deventbus.namelisteners=true`.
+* Minecraft 1.19.2, Forge 43.x — tested with eventbus 6.0.3.
 * Client and server.
 * Only replaces call sites; no mixins, no changes to Forge or eventbus classes.
