@@ -60,6 +60,7 @@ Optional system properties:
 |---|---|
 | `-Dfastevents.guard=false` | disable the "skip `new Event()` when nobody listens" shortcut |
 | `-Dfastevents.audit=true` | verify the cached listener array on every post and log late registrations |
+| `-Dfastevents.exclude=a.b,c.d` | do not touch classes under these packages (diagnostic escape hatch) |
 
 ## What it covers
 
