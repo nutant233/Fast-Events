@@ -16,3 +16,5 @@ src/generated/
 .classpath
 .project
 *.DS_Store
+tools/e2e/out/
+tools/e2e/server.log

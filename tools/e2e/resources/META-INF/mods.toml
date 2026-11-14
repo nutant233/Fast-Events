@@ -1,0 +1,10 @@
+modLoader = "javafml"
+loaderVersion = "[43,)"
+license = "LGPL 3.0"
+
+[[mods]]
+modId = "fastevents_e2e"
+version = "1.0.0"
+displayName = "Fast-Events E2E test"
+authors = "nutant"
+description = '''Development-only end-to-end check for the 1.19.2 build.'''
