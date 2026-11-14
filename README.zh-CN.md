@@ -83,6 +83,7 @@ class loader —— 这是被改写的调用点能跑起来的前提，见下面
 | `-Dfastevents.guard=false` | 关闭"没人监听就跳过 `new Event()`"的短路 |
 | `-Dfastevents.audit=true` | 每次 post 核对缓存的监听器数组，并记录晚注册 |
 | `-Dfastevents.diag=true` | 记录那些经过「未被改写的路径」注册的监听器 |
+| `-Dfastevents.exclude=a.b,c.d` | 这些包下的类完全不做改写（排查用的逃生开关） |
 
 ## 覆盖范围
 
