@@ -38,7 +38,7 @@ public final class Harness {
 
         final int originalMaxStack = maxStack(before, "postNew");
         final PostCallRewriter rewriter = new PostCallRewriter();
-        check(rewriter.rewrite(before) == 10, "应改写 6 个 post + 2 个 addListener + 1 个 addGenericListener + 1 个 unregister，实际 "
+        check(rewriter.rewrite(before) == 11, "应改写 6 个 post + 3 个 addListener + 1 个 addGenericListener + 1 个 unregister，实际 "
                 + (rewriter.postSites + rewriter.hookSites));
 
         check(rewriter.guardSites == 3, "应有 2 个调用点插 guard，实际 " + rewriter.guardSites);
@@ -60,7 +60,7 @@ public final class Harness {
         check(count(after, "postWrapped", "io/github/nutant/fastevents/FastDispatch") == 1,
                 "post(Event, IEventBusInvokeDispatcher) 应被改写 1 次");
         check(count(after, "bump", "io/github/nutant/fastevents/FastDispatch") == 0, "不应再插入 bump");
-        check(count(after, "addListener", "io/github/nutant/fastevents/FastDispatch") == 2, "addListener 应被改写 2 次");
+        check(count(after, "addListener", "io/github/nutant/fastevents/FastDispatch") == 3, "addListener 应被改写 3 次");
         check(count(after, "addGenericListener", "io/github/nutant/fastevents/FastDispatch") == 1,
                 "addGenericListener 应被改写 1 次");
         check(count(after, "unregister", "io/github/nutant/fastevents/FastDispatch") == 1, "unregister 应被改写 1 次");
@@ -305,6 +305,14 @@ public final class Harness {
             ifaceError = cause.toString();
         }
         check(ifaceDefined, "接口目标改写后应能通过 JVM 校验，实际 " + ifaceError);
+
+        // Login Protection 1.19.2 注册 serverStarted 用的就是这一形状：一参 addListener(Consumer) + 方法引用
+        final Method addMethodRefListener = target.getMethod("addMethodRefListener");
+        addMethodRefListener.invoke(null);
+        final Class<?> methodRefEvent = Class.forName("test.TestTarget$MethodRefEvent", true, target.getClassLoader());
+        FastDispatch.post(bus, (Event) methodRefEvent.getConstructor().newInstance(), FastDispatch.holder());
+        check(test.Counters.methodRefHits == 1,
+                "一参 addListener(Consumer) + 方法引用应注册成功并正常分发，实际 " + test.Counters.methodRefHits);
 
         System.out.println(failures == 0 ? "ALL CHECKS PASSED" : "FAILURES: " + failures);
         if (failures != 0) {

@@ -45,6 +45,19 @@ public final class TestTarget {
         MinecraftForge.EVENT_BUS.addGenericListener(String.class, consumer);
     }
 
+    /** 一参 addListener(Consumer)，用方法引用注册：Login Protection 用的就是这个形状。 */
+    public static void addMethodRefListener() {
+        MinecraftForge.EVENT_BUS.addListener(TestTarget::onMethodRefEvent);
+    }
+
+    public static void onMethodRefEvent(final MethodRefEvent event) {
+        Counters.methodRefHits++;
+    }
+
+    public static class MethodRefEvent extends Event {
+        public MethodRefEvent() {}
+    }
+
     public static void removeListener(final Object object) {
         MinecraftForge.EVENT_BUS.unregister(object);
     }
