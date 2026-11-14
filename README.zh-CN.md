@@ -88,6 +88,7 @@ dispatcher 在某个事件类第一次 post 时懒生成，该类的监听器数
 | `-Dfastevents.guard=false` | 关闭"没人监听就跳过 `new Event()`"的短路 |
 | `-Dfastevents.audit=true` | 每次 post 核对缓存的监听器数组，并记录晚注册 |
 | `-Dfastevents.diag=true` | 记录那些通过本模组未接管路径注册的监听器 |
+| `-Dfastevents.exclude=a.b,c.d` | 这些包下的类完全不做改写（排查用的逃生开关） |
 
 ## 覆盖范围
 
