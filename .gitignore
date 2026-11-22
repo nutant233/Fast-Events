@@ -18,3 +18,6 @@ src/generated/
 *.DS_Store
 tools/e2e/out/
 tools/e2e/server.log
+tools/harness-out/
+tools/probe-out/
+tools/smoke-out/
