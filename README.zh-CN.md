@@ -9,14 +9,13 @@ Forge 总线上的每次监听器调用都会走到一个生成出来的、完�
 
 | 8 个监听器 | 原生 | 本模组 |
 |---|---|---|
-| `@SubscribeEvent` | 35.8 ns | **10.5 ns** / **5.1 ns** |
-| `addListener(consumer)` | 19.4 ns | **7.1 ns** |
+| `@SubscribeEvent` | 35.8 ns | **10.8 ns** |
+| `addListener(consumer)` | 19.4 ns | **6.9 ns** |
 | `new Event()`（逃逸） | — | ~2.3 ns |
 
-每次 post，环境为 NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5、Java 21。consumer 一律直连。`@SubscribeEvent` 只有在
-监听器类对本模组的类加载器可见时才能直连（游戏/NeoForge 自己的监听器，**5.1 ns**）；其它模组的类被模组类加载器隔离，
-这些仍旧走总线的 MethodHandle 处理链（**10.5 ns**）。带 `hasListeners` 守卫的调用点（没人监听时连事件对象都不创建）
-每次多约 0.6 ns；`-Dfastevents.guard=false` 可以把它退化成普通 post。
+每次 post，环境为 NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5、Java 21。consumer 直接调用；`@SubscribeEvent` 仍走总线
+生成的处理方法——生成类定义在本模组的类加载器里，写别的模组的监听器类名跨加载器无法链接。带 `hasListeners` 守卫的
+调用点（没人监听时连事件对象都不创建）每次多约 0.6 ns；`-Dfastevents.guard=false` 可以把它退化成普通 post。
 
 ## 实现原理
 
