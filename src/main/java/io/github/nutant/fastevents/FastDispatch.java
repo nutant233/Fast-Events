@@ -63,7 +63,7 @@ public final class FastDispatch {
             return bus.post(event);
         }
         try {
-            return dispatcher.dispatchAndCancelled(event);
+            return dispatcher.dispatch(event);
         } catch (final Dispatcher.Failure failure) {
             handleException(bus, event, holder, dispatcher, failure);
             return false;
@@ -82,7 +82,6 @@ public final class FastDispatch {
             handleException(bus, event, holder, dispatcher, failure);
         }
     }
-
     public static boolean postWrapped(final IEventBus bus, final Event event,
                                       final IEventBusInvokeDispatcher invoker, final Holder holder) {
         final Dispatcher dispatcher = peek(bus, event, holder);

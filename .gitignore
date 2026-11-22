@@ -21,3 +21,5 @@ tools/e2e/server.log
 tools/harness-out/
 tools/probe-out/
 tools/smoke-out/
+tools/harness-only/
+tools/out-old/

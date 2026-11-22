@@ -5,19 +5,18 @@ import net.minecraftforge.eventbus.api.IEventBusInvokeDispatcher;
 
 public interface Dispatcher {
 
-    void dispatch(Event event);
-
-    boolean dispatchAndCancelled(Event event);
+    /**
+     * Dispatches the event and returns the flag {@code IEventBus#post} would return: whether the event is
+     * cancelable and was cancelled. Returning it from the same call the caller already makes keeps the post
+     * path to a single virtual call instead of a wrapper that calls back into {@code dispatch}.
+     */
+    boolean dispatch(Event event);
 
     boolean dispatchAndCancelled(Event event, IEventBusInvokeDispatcher invoker);
 
     Dispatcher EMPTY = new Dispatcher() {
         @Override
-        public void dispatch(final Event event) {
-        }
-
-        @Override
-        public boolean dispatchAndCancelled(final Event event) {
+        public boolean dispatch(final Event event) {
             return false;
         }
 
