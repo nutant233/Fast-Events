@@ -9,34 +9,36 @@ megamorphic loop, and event objects are not even constructed when nobody listens
 
 | 8 listeners | vanilla | this mod |
 |---|---|---|
-| `@SubscribeEvent` | 31.2 ns | **8.8 ns** |
-| `addListener(consumer)` | 19.0 ns | **8.8 ns** |
+| `@SubscribeEvent` | 35.8 ns | **10.5 ns** |
+| `addListener(consumer)` | 19.4 ns | **6.7 ns** |
 | `new Event()` (escaped) | — | ~2.4 ns |
 
-Per post, on NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5, Java 21.
+Per post, on NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5, Java 21. Consumer listeners used to cost 10.7 ns here
+before the dispatcher started calling the registered consumer directly instead of the bus's wrapper.
 
 ## How it works
 
 `EventBus.post` walks an `EventListener[]` and calls `listeners[i].invoke(event)`. That one call site sees every
-listener class in the game, so the JIT cannot inline any of them.
+listener class in the game, so the JIT cannot inline any of them. This mod generates one dispatcher class per
+event class, and unpacks the bus's listener wrappers (`ConsumerEventHandler`, `SubscribeEventListener`) so the
+generated code calls the consumer or handler directly and applies the cancellation filter inline.
 
 Instead, each `post` call site caches a dispatcher generated for the listener array of that event class: every
 listener gets its own field and its own call instruction, so each call site has exactly one receiver type and is
 inlined all the way down into the listener body.
 
-The 8.x bus needs very little on top of that: the array carries no priority markers, wrapper listeners are already
-unwrapped for non-cancellable events, and cancellation is checked inside the listeners themselves. So the whole
-generated class is one field and one call per listener:
+The 8.x bus stores `ConsumerEventHandler` for consumer registrations and `SubscribeEventListener` around
+`@SubscribeEvent` handlers, so the generator unpacks them: a consumer becomes a `Consumer` field called with
+`accept(event)`, its cancellation filter becomes an inline `predicate.test(event)`, and a `@SubscribeEvent` handler is
+pulled out of its wrapper and invoked directly with the cancellation check inlined in front of it:
 
 ```java
 public final class Gen0 implements Dispatcher {
-    private final EventListener f0;              // one field per listener
+    private final Consumer f0;                   // one field per listener, typed as the unwrapped target
     ...
-    private final EventListener f7;
-
     @Override
     public void dispatch(Event event) {
-        try { f0.invoke(event); } catch (Throwable t) { throw new Failure(t, 0); }
+        try { f0.accept(event); } catch (Throwable t) { throw new Failure(t, 0); }
         ...                                      // one block per listener, in order
     }
 }

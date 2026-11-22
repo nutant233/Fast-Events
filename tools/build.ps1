@@ -65,6 +65,11 @@ Write-Host "running concurrency check (posts from several threads while registra
 $rc4 = $LASTEXITCODE
 
 Write-Host ""
+Write-Host "running cancellation semantics check ..."
+& java -cp "$cpRun;$out" harness.CancelCheck
+$rc5 = $LASTEXITCODE
+
+Write-Host ""
 Write-Host "bench（一个用例一个 JVM）:"
 $cases = @('post-native','post-fast','subscribe-native','subscribe-fast','mixed-shared','mixed-split','alloc','rewrite')
 foreach ($case in $cases) {
@@ -72,5 +77,5 @@ foreach ($case in $cases) {
     & java -cp "$cpRun;$out" harness.Bench $case | Where-Object { $_ -match 'ns/post' }
 }
 
-Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3 + " rc4=" + $rc4)
-exit ($rc1 -bor $rc2 -bor $rc3 -bor $rc4)
+Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3 + " rc4=" + $rc4 + " rc5=" + $rc5)
+exit ($rc1 -bor $rc2 -bor $rc3 -bor $rc4 -bor $rc5)
