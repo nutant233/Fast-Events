@@ -204,6 +204,30 @@ public final class Bench {
                     }
                 });
             }
+            case "multi16-native", "multi16-shared", "multi16-split" -> {
+                for (final Class<? extends Event> type : MULTI_TYPES) {
+                    for (int i = 0; i < 2; i++) {
+                        bus.addListener(EventPriority.NORMAL, false, type, e -> sink += 1);
+                    }
+                }
+                final FastDispatch.Holder shared = FastDispatch.holder();
+                final FastDispatch.Holder[] holders = new FastDispatch.Holder[MULTI_TYPES.length];
+                for (int i = 0; i < holders.length; i++) {
+                    holders[i] = FastDispatch.holder();
+                }
+                time("multi 16 event classes: " + which, n, () -> {
+                    for (int i = 0; i < MULTI_FACTORIES.length; i++) {
+                        final Event event = MULTI_FACTORIES[i].get();
+                        if ("multi16-native".equals(which)) {
+                            bus.post(event);
+                        } else if ("multi16-shared".equals(which)) {
+                            FastDispatch.post(bus, event, shared);
+                        } else {
+                            FastDispatch.post(bus, event, holders[i]);
+                        }
+                    }
+                });
+            }
             case "dispatcher-churn" -> {
                 final int rounds = args.length > 1 ? Integer.parseInt(args[1]) : 500;
                 final java.lang.management.MemoryMXBean memory = java.lang.management.ManagementFactory.getMemoryMXBean();
@@ -499,4 +523,145 @@ public final class Bench {
         @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
         @Override public boolean isCancelable() { return false; }
     }
+
+    // Sixteen distinct event classes, each with its own listener list.
+    public static class MultiEvent0 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent1 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent2 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent3 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent4 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent5 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent6 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent7 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent8 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent9 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent10 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent11 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent12 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent13 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent14 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    public static class MultiEvent15 extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
+
+    static final Class<? extends Event>[] MULTI_TYPES = new Class[]{
+            MultiEvent0.class, MultiEvent1.class, MultiEvent2.class, MultiEvent3.class,
+            MultiEvent4.class, MultiEvent5.class, MultiEvent6.class, MultiEvent7.class,
+            MultiEvent8.class, MultiEvent9.class, MultiEvent10.class, MultiEvent11.class,
+            MultiEvent12.class, MultiEvent13.class, MultiEvent14.class, MultiEvent15.class};
+
+    static final java.util.function.Supplier<Event>[] MULTI_FACTORIES = new java.util.function.Supplier[]{
+            MultiEvent0::new, MultiEvent1::new, MultiEvent2::new, MultiEvent3::new,
+            MultiEvent4::new, MultiEvent5::new, MultiEvent6::new, MultiEvent7::new,
+            MultiEvent8::new, MultiEvent9::new, MultiEvent10::new, MultiEvent11::new,
+            MultiEvent12::new, MultiEvent13::new, MultiEvent14::new, MultiEvent15::new};
 }

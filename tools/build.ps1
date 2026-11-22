@@ -63,7 +63,7 @@ $rc4 = $LASTEXITCODE
 
 Write-Host ""
 Write-Host "bench（一个用例一个 JVM）:"
-$cases = @('eight-native','eight-fast','eight-markers','eight-dispatch-only','alloc','asm-native','asm-fast','arg1-native','arg1-fast','generic-native','generic-fast','alt-native','alt-shared','alt-split','alt3-native','alt3-shared','alt3-split','asm-parse','asm-wrapper-gen','lambda-gen','unregister-all','unregister-one')
+$cases = @('eight-native','eight-fast','eight-markers','eight-dispatch-only','alloc','asm-native','asm-fast','arg1-native','arg1-fast','generic-native','generic-fast','alt-native','alt-shared','alt-split','alt3-native','alt3-shared','alt3-split','multi16-native','multi16-shared','multi16-split','asm-parse','asm-wrapper-gen','lambda-gen','unregister-all','unregister-one')
 foreach ($c in $cases) {
     Write-Host ("  [" + $c + "]")
     & java -cp "$cp;$out" harness.Bench $c | Where-Object { $_ -match 'ns/' }
