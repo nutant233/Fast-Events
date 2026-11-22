@@ -92,6 +92,33 @@ public final class FastDispatch {
      * Drops only the dispatchers of the event classes the object subscribes to. A registration that cannot be
      * attributed to any class falls back to a soft invalidation, which keeps every generated dispatcher.
      */
+    /**
+     * Invalidates only the event class a consumer listens to, resolved the same way the bus resolves it
+     * ({@code TypeResolver}). Unknown consumers fall back to the soft invalidation.
+     */
+    private static void invalidateConsumer(final IEventBus bus, final Consumer<?> consumer) {
+        final Class<?> type = resolveConsumerType(consumer);
+        if (type != null && Event.class.isAssignableFrom(type)) {
+            invalidateClass(type, bus);
+        } else {
+            invalidateSoft();
+        }
+    }
+
+    private static Class<?> resolveConsumerType(final Consumer<?> consumer) {
+        try {
+            final Class<?> resolver = Class.forName("net.jodah.typetools.TypeResolver");
+            final java.lang.reflect.Method resolve = resolver.getMethod("resolveRawArgument",
+                    Class.class, Class.class);
+            final Object resolved = resolve.invoke(null, Consumer.class, consumer.getClass());
+            if (resolved instanceof Class<?> type && !type.getName().contains("TypeResolver$Unknown")) {
+                return type;
+            }
+        } catch (final Throwable failed) {
+            // the bus bundles the resolver, so this only happens when it is missing or renamed
+        }
+        return null;
+    }
     private static void invalidateSubscriptions(final IEventBus bus, final Object target) {
         boolean targeted = false;
         for (final Class<? extends Event> type : subscribedTypes(target.getClass())) {
@@ -123,7 +150,7 @@ public final class FastDispatch {
 
     public static <T extends Event> void addListener(final IEventBus bus, final Consumer<T> consumer) {
         bus.addListener(consumer);
-        invalidateSoft();
+        invalidateConsumer(bus, consumer);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final Class<T> eventType,
@@ -135,7 +162,7 @@ public final class FastDispatch {
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final Consumer<T> consumer) {
         bus.addListener(priority, consumer);
-        invalidateSoft();
+        invalidateConsumer(bus, consumer);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
@@ -147,7 +174,7 @@ public final class FastDispatch {
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final boolean receiveCanceled, final Consumer<T> consumer) {
         bus.addListener(priority, receiveCanceled, consumer);
-        invalidateSoft();
+        invalidateConsumer(bus, consumer);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
@@ -160,7 +187,7 @@ public final class FastDispatch {
     public static <T extends Event> void addListener(final IEventBus bus, final boolean receiveCanceled,
                                                      final Consumer<T> consumer) {
         bus.addListener(receiveCanceled, consumer);
-        invalidateSoft();
+        invalidateConsumer(bus, consumer);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final boolean receiveCanceled,
