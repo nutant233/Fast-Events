@@ -45,6 +45,11 @@ public final class FastDispatch {
         return holder;
     }
 
+    /**
+     * Answers whether the following {@code post} has anything to do: a cache hit answers from the cached
+     * dispatcher (one volatile read, no second lookup pattern), a miss resolves once so that "nobody listens"
+     * is answered without ever building the event.
+     */
     public static boolean hasListeners(final IEventBus bus, final Class<? extends Event> type,
                                        final Holder holder) {
         if (holder == null) {
