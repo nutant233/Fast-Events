@@ -211,6 +211,7 @@ public final class FastDispatch {
         final Class<T> eventType = resolveType(consumer);
         if (eventType == null) {
             bus.addListener(priority, receiveCancelled, consumer);
+            invalidate();
             return;
         }
         addListener(bus, priority, receiveCancelled, eventType, consumer);
@@ -232,6 +233,7 @@ public final class FastDispatch {
             }
         }
         bus.addListener(priority, receiveCancelled, eventType, consumer);
+        invalidate();
     }
 
     public static <T extends GenericEvent<? extends F>, F> void addGenericListener(final IEventBus bus,
@@ -255,6 +257,7 @@ public final class FastDispatch {
         final Class<T> eventType = resolveType(consumer);
         if (eventType == null) {
             bus.addGenericListener(filter, priority, receiveCancelled, consumer);
+            invalidate();
             return;
         }
         addGenericListener(bus, filter, priority, receiveCancelled, eventType, consumer);
@@ -279,20 +282,56 @@ public final class FastDispatch {
             }
         }
         bus.addGenericListener(filter, priority, receiveCancelled, eventType, consumer);
+        invalidate();
     }
 
     public static void unregister(final IEventBus bus, final Object object) {
+        final int id = busId(bus);
         final List<Registration> ours = REGISTERED.remove(object);
+        boolean targeted = false;
         if (ours != null) {
-            final int id = busId(bus);
             if (id >= 0) {
                 for (final Registration registration : ours) {
                     registration.list.unregister(id, registration.listener);
                     invalidateClass(registration.type, id);
                 }
+                targeted = true;
             }
         }
         bus.unregister(object);
+        if (id < 0) {
+            invalidate();
+            return;
+        }
+        // the object's own @SubscribeEvent methods are gone now: drop only the dispatchers of their classes
+        for (final Class<? extends Event> type : subscribedTypes(object.getClass())) {
+            invalidateClass(type, id);
+            targeted = true;
+        }
+        if (!targeted) {
+            invalidate();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Class<? extends Event>> subscribedTypes(final Class<?> owner) {
+        final List<Class<? extends Event>> types = new ArrayList<>();
+        for (Class<?> current = owner; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (final java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                if (method.getParameterCount() != 1) {
+                    continue;
+                }
+                if (!method.isAnnotationPresent(SubscribeEvent.class)
+                        && !method.isAnnotationPresent(SubscribeEvent.class)) {
+                    continue;
+                }
+                final Class<?> parameter = method.getParameterTypes()[0];
+                if (Event.class.isAssignableFrom(parameter)) {
+                    types.add((Class<? extends Event>) parameter);
+                }
+            }
+        }
+        return types;
     }
 
     @SuppressWarnings("unchecked")
@@ -309,14 +348,22 @@ public final class FastDispatch {
     }
 
     private static void report(final Class<? extends Event> type, final IEventListener[] listeners) {
+        final StringBuilder summary = new StringBuilder();
         for (final IEventListener listener : listeners) {
-            if (listener == null || listener instanceof EventPriority || listener instanceof ConsumerListener
-                    || listener instanceof DirectListener) {
+            if (listener == null || listener instanceof EventPriority) {
+                continue;
+            }
+            if (summary.length() > 0) {
+                summary.append(", ");
+            }
+            summary.append(listener.listenerName()).append(" (").append(listener.getClass().getName()).append(')');
+            if (listener instanceof ConsumerListener || listener instanceof DirectListener) {
                 continue;
             }
             LOGGER.warn("[FastEvents] listener {} ({}) on {} was registered through a non-rewritten call site",
                     listener.listenerName(), listener.getClass().getName(), type.getName());
         }
+        System.err.println("[FastEvents] dispatch for " + type.getName() + ": " + listeners.length + " listener(s): " + summary);
     }
 
     private static boolean optimizable(final IEventBus bus, final Class<?> eventType) {
