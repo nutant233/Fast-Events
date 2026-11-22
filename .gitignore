@@ -18,3 +18,4 @@ src/generated/
 *.DS_Store
 tools/harness-only/
 tools/out-old/
+release/
