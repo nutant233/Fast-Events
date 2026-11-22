@@ -59,10 +59,24 @@ final class DispatchGen implements Opcodes {
         if (listeners.length == 0) {
             return Dispatcher.EMPTY;
         }
+        try {
+            return build(eventType, listeners, DIRECT);
+        } catch (final Throwable direct) {
+            // a direct call references the listener class from this module, which a modded class loader may not
+            // be able to resolve; fall back to the bus's handler instead of failing the post
+            try {
+                return build(eventType, listeners, false);
+            } catch (final Throwable plain) {
+                plain.addSuppressed(direct);
+                throw new IllegalStateException("[FastEvents] dispatcher generation failed", plain);
+            }
+        }
+    }
 
+    private static Dispatcher build(final Class<?> eventType, final EventListener[] listeners, final boolean direct) {
         final List<Step> steps = new ArrayList<>(listeners.length);
         for (final EventListener listener : listeners) {
-            steps.add(classify(listener, eventType));
+            steps.add(classify(listener, eventType, direct));
         }
 
         final String name = "io/github/nutant/fastevents/Gen" + ID.getAndIncrement();
@@ -139,7 +153,7 @@ final class DispatchGen implements Opcodes {
      * methods in {@code SubscribeEventListener} around a generated handler. Anything unknown keeps the plain
      * {@code invoke} call.
      */
-    private static Step classify(final EventListener listener, final Class<?> eventType) {
+    private static Step classify(final EventListener listener, final Class<?> eventType, final boolean direct) {
         if (listener instanceof ConsumerEventHandler) {
             final Object consumer = read(CONSUMER_FIELD, listener);
             if (consumer != null) {
@@ -154,16 +168,16 @@ final class DispatchGen implements Opcodes {
             final EventListener target = wrapper.getWithoutCheck();
             if (target != null) {
                 final boolean receiveCanceled = receiveCanceled(wrapper);
-                final Direct direct = DIRECT ? Direct.resolve(target, eventType) : null;
-                return direct != null ? Step.direct(direct, receiveCanceled) : Step.listener(target, receiveCanceled);
+                final Direct call = direct ? Direct.resolve(target, eventType) : null;
+                return call != null ? Step.direct(call, receiveCanceled) : Step.listener(target, receiveCanceled);
             }
         }
-        if (DIRECT && !(listener instanceof ConsumerEventHandler)) {
+        if (direct && !(listener instanceof ConsumerEventHandler)) {
             // the bus leaves @SubscribeEvent handlers unwrapped for event classes that can never be cancelled,
             // so the cancellation check was never part of them
-            final Direct direct = Direct.resolve(listener, eventType);
-            if (direct != null) {
-                return Step.direct(direct, true);
+            final Direct call = Direct.resolve(listener, eventType);
+            if (call != null) {
+                return Step.direct(call, true);
             }
         }
         return Step.listener(listener, true);
@@ -234,6 +248,11 @@ final class DispatchGen implements Opcodes {
                             || !Modifier.isPublic(candidate.getDeclaringClass().getModifiers())) {
                         continue;
                     }
+                    if (!linkable(candidate.getDeclaringClass()) || !linkable(candidate.getParameterTypes()[0])) {
+                        // the generated class lives in this mod's class loader; naming a class from another
+                        // mod's loader would fail to link, so keep the bus's handler for those
+                        continue;
+                    }
                     if (sameHandler(candidate, instance, handlerClass)) {
                         return new Direct(candidate, instance);
                     }
@@ -248,6 +267,15 @@ final class DispatchGen implements Opcodes {
                 final Method create = factory.getDeclaredMethod("create", Method.class, Object.class);
                 create.setAccessible(true);
                 return create.invoke(null, method, instance).getClass() == expected;
+            } catch (final Throwable failed) {
+                return false;
+            }
+        }
+
+        /** Whether this mod's class loader can resolve {@code owner}, which is what the generated class uses. */
+        private static boolean linkable(final Class<?> owner) {
+            try {
+                return Class.forName(owner.getName(), false, DispatchGen.class.getClassLoader()) == owner;
             } catch (final Throwable failed) {
                 return false;
             }
