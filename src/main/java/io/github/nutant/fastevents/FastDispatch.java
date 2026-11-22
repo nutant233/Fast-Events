@@ -102,41 +102,85 @@ public final class FastDispatch {
             return null;
         }
         final Class<?> type = event.getClass();
-        final Binding current = holder.binding;
-        final Binding cached = current == null ? null : current.find(type);
+        final Binding cached = lookup(holder, type);
         if (cached == null) {
-            if (AUDIT && current != null) {
-                LOGGER.warn("[FastEvents] dispatcher rebound from {} to {}", current.type, type);
+            if (AUDIT) {
+                final Object cache = holder.cache;
+                if (cache != null) {
+                    LOGGER.warn("[FastEvents] dispatcher rebound to {} at a call site that already cached {}",
+                            type, cache instanceof Binding ? ((Binding) cache).type : "other event classes");
+                }
             }
             return resolve(bus, event, holder);
         }
         return AUDIT ? audit(bus, event, holder, cached) : cached.dispatcher;
     }
 
-    /** The binding this call site has cached for {@code type}, or null. */
+    /**
+     * The binding this call site has cached for {@code type}, or null. Small call sites keep an immutable
+     * chain; sites that post many event classes switch to a {@link java.util.concurrent.ConcurrentHashMap} so
+     * nothing has to be re-resolved (and re-allocated) per post.
+     */
     private static Binding lookup(final Holder holder, final Class<?> type) {
-        final Binding current = holder.binding;
-        return current == null ? null : current.find(type);
+        final Object cache = holder.cache;
+        if (cache == null) {
+            return null;
+        }
+        if (cache instanceof Binding) {
+            return ((Binding) cache).find(type);
+        }
+        return ((java.util.concurrent.ConcurrentHashMap<Class<?>, Binding>) cache).get(type);
     }
 
     /**
-     * Publishes a freshly built binding. The snapshot is immutable and swapped in through a single volatile
-     * write, so a post from another thread either sees the previous snapshot, which makes it resolve again,
-     * or the new one. It can never observe a half-updated cache, which is what produced
-     * ArrayIndexOutOfBoundsException and mis-dispatches before.
+     * Publishes a freshly built binding. The cache is swapped in through a single volatile write, so a post
+     * from another thread either sees the previous cache, which makes it resolve again, or the new one. It can
+     * never observe a half-updated cache, which is what produced ArrayIndexOutOfBoundsException and
+     * mis-dispatches before.
      */
     private static void publish(final Holder holder, final Class<?> type, final IEventListener[] original,
                                 final Dispatcher dispatcher) {
-        final Binding current = holder.binding;
-        holder.binding = current == null
-                ? new Binding(type, original, dispatcher, null)
-                : current.push(type, original, dispatcher);
+        final Object cache = holder.cache;
+        if (cache == null) {
+            holder.cache = new Binding(type, original, dispatcher, null);
+            return;
+        }
+        if (cache instanceof Binding) {
+            final Binding chain = (Binding) cache;
+            final Binding existing = chain.find(type);
+            if (existing != null || chain.depth() < CHAIN_LIMIT) {
+                holder.cache = chain.push(type, original, dispatcher);
+                return;
+            }
+            // too many event classes for this call site: switch to a map and stop re-resolving
+            final java.util.concurrent.ConcurrentHashMap<Class<?>, Binding> map = new java.util.concurrent.ConcurrentHashMap<>();
+            for (Binding current = chain; current != null; current = current.next) {
+                map.put(current.type, current);
+            }
+            map.put(type, new Binding(type, original, dispatcher, null));
+            holder.cache = map;
+            return;
+        }
+        ((java.util.concurrent.ConcurrentHashMap<Class<?>, Binding>) cache)
+                .put(type, new Binding(type, original, dispatcher, null));
     }
 
-    private static IEventListener[] originalOf(final Binding binding, final Dispatcher dispatcher) {
-        for (Binding current = binding; current != null; current = current.next) {
-            if (current.dispatcher == dispatcher) {
-                return current.original == null ? EMPTY : current.original;
+    private static IEventListener[] originalOf(final Holder holder, final Dispatcher dispatcher) {
+        final Object cache = holder.cache;
+        if (cache == null) {
+            return EMPTY;
+        }
+        if (cache instanceof Binding) {
+            for (Binding current = (Binding) cache; current != null; current = current.next) {
+                if (current.dispatcher == dispatcher) {
+                    return current.original == null ? EMPTY : current.original;
+                }
+            }
+            return EMPTY;
+        }
+        for (final Binding binding : ((java.util.concurrent.ConcurrentHashMap<Class<?>, Binding>) cache).values()) {
+            if (binding.dispatcher == dispatcher) {
+                return binding.original == null ? EMPTY : binding.original;
             }
         }
         return EMPTY;
@@ -146,7 +190,7 @@ public final class FastDispatch {
                                         final Dispatcher dispatcher, final Dispatcher.Failure failure) {
         if (bus instanceof EventBus) {
             final EventBus impl = (EventBus) bus;
-            impl.handleException(impl, event, originalOf(holder.binding, dispatcher), failure.index, failure.getCause());
+            impl.handleException(impl, event, originalOf(holder, dispatcher), failure.index, failure.getCause());
         }
         FastDispatch.sneakyThrow(failure.getCause());
     }
@@ -311,12 +355,24 @@ public final class FastDispatch {
     }
 
     private static void clear(final Holder holder) {
-        holder.binding = null;
+        holder.cache = null;
     }
 
     private static boolean matches(final Holder holder, final Class<?> type) {
-        for (Binding current = holder.binding; current != null; current = current.next) {
-            if (current.type != null && type.isAssignableFrom(current.type)) {
+        final Object cache = holder.cache;
+        if (cache == null) {
+            return false;
+        }
+        if (cache instanceof Binding) {
+            for (Binding current = (Binding) cache; current != null; current = current.next) {
+                if (current.type != null && type.isAssignableFrom(current.type)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (final Binding binding : ((java.util.concurrent.ConcurrentHashMap<Class<?>, Binding>) cache).values()) {
+            if (binding.type != null && type.isAssignableFrom(binding.type)) {
                 return true;
             }
         }
@@ -405,18 +461,19 @@ public final class FastDispatch {
     }
 
     /**
-     * One call site's cache: a single immutable snapshot, replaced atomically. See {@link #publish} for why
-     * it must not be mutated in place.
+     * One call site's cache, replaced atomically. Either an immutable {@link Binding} chain while the site
+     * only posts a few event classes, or a {@link java.util.concurrent.ConcurrentHashMap} once it posts more
+     * than {@link #CHAIN_LIMIT} of them. See {@link #publish} for why it must not be updated field by field.
      */
     public static final class Holder {
-        volatile Binding binding;
+        volatile Object cache;
     }
+
+    /** Above this many event classes at one call site the chain is replaced by a map. */
+    static final int CHAIN_LIMIT = 4;
 
     /** Immutable: what one call site resolved for one event class, plus the other classes it saw earlier. */
     static final class Binding {
-        /** Enough for the handful of event classes a single call site realistically posts. */
-        static final int MAX_CHAIN = 8;
-
         final Class<?> type;
         final IEventListener[] original;
         final Dispatcher dispatcher;
@@ -438,15 +495,23 @@ public final class FastDispatch {
             return null;
         }
 
+        int depth() {
+            int depth = 0;
+            for (Binding current = this; current != null; current = current.next) {
+                depth++;
+            }
+            return depth;
+        }
+
         /**
          * Returns a new snapshot with {@code type} in front. The previous entries are copied so the result is
-         * fully immutable; entries beyond {@link #MAX_CHAIN} are dropped and simply re-resolve later.
+         * fully immutable; the caller promotes to a map instead of calling this once the chain is full.
          */
         Binding push(final Class<?> type, final IEventListener[] original, final Dispatcher dispatcher) {
             if (this.type == type && this.original == original && this.dispatcher == dispatcher) {
                 return this;
             }
-            final int capacity = MAX_CHAIN - 1;
+            final int capacity = CHAIN_LIMIT - 1;
             final Class<?>[] types = new Class<?>[capacity];
             final IEventListener[][] originals = new IEventListener[capacity][];
             final Dispatcher[] dispatchers = new Dispatcher[capacity];
