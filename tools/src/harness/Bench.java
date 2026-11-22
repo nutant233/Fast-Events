@@ -204,7 +204,15 @@ public final class Bench {
                     }
                 });
             }
-            case "multi16-native", "multi16-shared", "multi16-split" -> {
+            case "one-native", "one-fast" -> {
+                bus.addListener(EventPriority.NORMAL, false, OneEvent.class, e -> sink += 1);
+                final FastDispatch.Holder holder = FastDispatch.holder();
+                time("one listener: " + which, n, () -> {
+                    if ("one-native".equals(which)) {
+                        if (bus.post(new OneEvent())) sink += 1;
+                    } else if (FastDispatch.post(bus, new OneEvent(), holder)) sink += 1;
+                });
+            }            case "multi16-native", "multi16-shared", "multi16-split" -> {
                 for (final Class<? extends Event> type : MULTI_TYPES) {
                     for (int i = 0; i < 2; i++) {
                         bus.addListener(EventPriority.NORMAL, false, type, e -> sink += 1);
@@ -516,6 +524,13 @@ public final class Bench {
         @Override public boolean isCancelable() { return false; }
     }
 
+    public static class OneEvent extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
     public static class FastEightEvent extends Event {
         public static final net.minecraftforge.eventbus.ListenerList LL =
                 new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
