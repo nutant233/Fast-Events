@@ -204,6 +204,39 @@ public final class Bench {
                     }
                 });
             }
+            case "one-native", "one-fast" -> {
+                bus.addListener(EventPriority.NORMAL, false, OneEvent.class, e -> sink += 1);
+                final FastDispatch.Holder holder = FastDispatch.holder();
+                time("one listener: " + which, n, () -> {
+                    if ("one-native".equals(which)) {
+                        if (bus.post(new OneEvent())) sink += 1;
+                    } else if (FastDispatch.post(bus, new OneEvent(), holder)) sink += 1;
+                });
+            }
+            case "multi16-native", "multi16-shared", "multi16-split" -> {
+                for (final Class<? extends Event> type : MULTI_TYPES) {
+                    for (int i = 0; i < 2; i++) {
+                        bus.addListener(EventPriority.NORMAL, false, type, e -> sink += 1);
+                    }
+                }
+                final FastDispatch.Holder shared = FastDispatch.holder();
+                final FastDispatch.Holder[] holders = new FastDispatch.Holder[MULTI_TYPES.length];
+                for (int i = 0; i < holders.length; i++) {
+                    holders[i] = FastDispatch.holder();
+                }
+                time("multi 16 event classes: " + which, n, () -> {
+                    for (int i = 0; i < MULTI_FACTORIES.length; i++) {
+                        final Event event = MULTI_FACTORIES[i].get();
+                        if ("multi16-native".equals(which)) {
+                            bus.post(event);
+                        } else if ("multi16-shared".equals(which)) {
+                            FastDispatch.post(bus, event, shared);
+                        } else {
+                            FastDispatch.post(bus, event, holders[i]);
+                        }
+                    }
+                });
+            }
             case "dispatcher-churn" -> {
                 final int rounds = args.length > 1 ? Integer.parseInt(args[1]) : 500;
                 final java.lang.management.MemoryMXBean memory = java.lang.management.ManagementFactory.getMemoryMXBean();
@@ -492,6 +525,13 @@ public final class Bench {
         @Override public boolean isCancelable() { return false; }
     }
 
+    public static class OneEvent extends Event {
+        public static final net.minecraftforge.eventbus.ListenerList LL =
+                new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));
+
+        @Override public net.minecraftforge.eventbus.ListenerList getListenerList() { return LL; }
+        @Override public boolean isCancelable() { return false; }
+    }
     public static class FastEightEvent extends Event {
         public static final net.minecraftforge.eventbus.ListenerList LL =
                 new net.minecraftforge.eventbus.ListenerList(EventListenerHelper.getListenerList(Event.class));

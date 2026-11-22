@@ -79,7 +79,6 @@ final class DispatchGen implements Opcodes {
         final boolean cancelable = isCancelable(eventType);
         emitFieldsAndCtor(cw, name, steps);
         emitDispatch(cw, name, steps, cancelable);
-        emitCancelled(cw, name, cancelable);
         emitWrapped(cw, name, steps, cancelable);
         cw.visitEnd();
 
@@ -212,10 +211,10 @@ final class DispatchGen implements Opcodes {
     private static void emitDispatch(final ClassWriter cw, final String name, final List<Step> steps,
                                      final boolean cancelable) {
         if (steps.size() <= STEPS_PER_METHOD) {
-            final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")V", null, null);
+            final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")Z", null, null);
             mv.visitCode();
             emitSteps(mv, name, steps, cancelable);
-            mv.visitInsn(RETURN);
+            emitCancelFlag(mv, cancelable);
             mv.visitMaxs(0, 0);
             mv.visitEnd();
             return;
@@ -231,16 +230,27 @@ final class DispatchGen implements Opcodes {
             mv.visitMaxs(0, 0);
             mv.visitEnd();
         }
-        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")V", null, null);
+        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatch", "(" + EVENT_DESC + ")Z", null, null);
         mv.visitCode();
         for (int chunk = 0; chunk < chunks; chunk++) {
             mv.visitVarInsn(ALOAD, 0);
             mv.visitVarInsn(ALOAD, 1);
             mv.visitMethodInsn(INVOKEVIRTUAL, name, "run" + chunk, "(" + EVENT_DESC + ")V", false);
         }
-        mv.visitInsn(RETURN);
+        emitCancelFlag(mv, cancelable);
         mv.visitMaxs(0, 0);
         mv.visitEnd();
+    }
+
+    /** {@code return event.isCanceled()} for cancelable classes, {@code return false} for the rest. */
+    private static void emitCancelFlag(final MethodVisitor mv, final boolean cancelable) {
+        if (cancelable) {
+            mv.visitVarInsn(ALOAD, 1);
+            mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "isCanceled", "()Z", false);
+        } else {
+            mv.visitInsn(ICONST_0);
+        }
+        mv.visitInsn(IRETURN);
     }
 
     private static void emitSteps(final MethodVisitor mv, final String name, final List<Step> steps,
@@ -299,25 +309,6 @@ final class DispatchGen implements Opcodes {
 
             mv.visitLabel(skip);
         }
-    }
-
-    private static void emitCancelled(final ClassWriter cw, final String name, final boolean cancelable) {
-        final MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "dispatchAndCancelled",
-                "(" + EVENT_DESC + ")Z", null, null);
-        mv.visitCode();
-        mv.visitVarInsn(ALOAD, 0);
-        mv.visitVarInsn(ALOAD, 1);
-        mv.visitMethodInsn(INVOKEVIRTUAL, name, "dispatch", "(" + EVENT_DESC + ")V", false);
-        if (cancelable) {
-            mv.visitVarInsn(ALOAD, 1);
-            mv.visitMethodInsn(INVOKEVIRTUAL, EVENT, "isCanceled", "()Z", false);
-            mv.visitInsn(IRETURN);
-        } else {
-            mv.visitInsn(ICONST_0);
-            mv.visitInsn(IRETURN);
-        }
-        mv.visitMaxs(0, 0);
-        mv.visitEnd();
     }
 
     private static void emitWrapped(final ClassWriter cw, final String name, final List<Step> steps,

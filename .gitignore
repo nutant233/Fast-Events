@@ -22,3 +22,5 @@ src/generated/
 .classpath
 .project
 *.DS_Store
+tools/harness-only/
+tools/out-old/
