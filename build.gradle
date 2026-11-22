@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'io.github.nutant'
-version = '1.18-26.10.1'
+version = '1.18-26.10.2'
 
 base {
     archivesName = 'fastevents'
