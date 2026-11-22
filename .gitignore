@@ -19,3 +19,6 @@ src/generated/
 
 tools/out/
 tools/cp.txt
+tools/harness-out/
+tools/probe-out/
+tools/smoke-out/
