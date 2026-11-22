@@ -77,6 +77,11 @@ Write-Host "running harness (eventbus 4.0.0, -Deventbus.namelisteners=true) ..."
 & java '-Deventbus.namelisteners=true' -cp "$cp;$out;$harnessOut" harness.Harness
 $rc2 = $LASTEXITCODE
 
+Write-Host ""
+Write-Host "running concurrency check (posts from several threads while registrations clear the cache) ..."
+& java -cp "$cp;$out;$harnessOut" harness.RaceCheck
+$rc4 = $LASTEXITCODE
+
 # 3) Java 8 smoke test and timing
 $java8 = Find-Java8
 $rc3 = 0
@@ -106,5 +111,5 @@ if ($java8) {
     Write-Host "(Java 8 not found - set JAVA8_HOME to also run the smoke test; skipped)"
 }
 
-Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3)
-exit ($rc1 -bor $rc2 -bor $rc3)
+Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3 + " rc4=" + $rc4)
+exit ($rc1 -bor $rc2 -bor $rc3 -bor $rc4)
