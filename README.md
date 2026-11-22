@@ -19,6 +19,10 @@ megamorphic loop, and event objects are not even constructed when nobody listens
 Per post, on Forge 43.5.x / eventbus 6.0.3, Java 21. Wider listener arrays stay ahead of vanilla too: 128 listeners
 254 ns → **85 ns**, 512 listeners 1421 ns → **556 ns**.
 
+A single call site that posts **16 different event classes** costs 66 ns per post on vanilla and **33 ns** here: once
+a site has posted more than four classes its cache switches from a short list to a map, so nothing is re-resolved (or
+re-allocated) per post.
+
 ## Versions
 
 One branch per Minecraft version; the code is the same, only the bus and loader it targets differ.
