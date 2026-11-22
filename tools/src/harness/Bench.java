@@ -237,7 +237,32 @@ public final class Bench {
                     }
                 });
             }
-            case "dispatcher-churn" -> {
+            case "churn-impact" -> {
+                // warm a few call sites, then let a mod subscribe/unsubscribe repeatedly and see whether the
+                // already built dispatchers survive and stay fast
+                final FastDispatch.Holder[] holders = new FastDispatch.Holder[8];
+                for (int i = 0; i < holders.length; i++) {
+                    holders[i] = FastDispatch.holder();
+                }
+                final java.util.function.Consumer<EightEvent> warm = e -> sink += 1;
+                FastDispatch.addListener(bus, EventPriority.NORMAL, false, EightEvent.class, warm);
+                for (final FastDispatch.Holder holder : holders) {
+                    FastDispatch.post(bus, new EightEvent(), holder);
+                }
+                final int built = FastDispatch.debugDispatchers();
+                for (int round = 0; round < 200; round++) {
+                    final java.util.function.Consumer<ChurnEvent> consumer = e -> sink += 1;
+                    FastDispatch.addListener(bus, EventPriority.NORMAL, false, ChurnEvent.class, consumer);
+                    FastDispatch.unregister(bus, consumer);
+                }
+                final int after = FastDispatch.debugDispatchers();
+                time("re-post 8 cached call sites after 200 registrations", n, () -> {
+                    for (final FastDispatch.Holder holder : holders) {
+                        FastDispatch.post(bus, new EightEvent(), holder);
+                    }
+                });
+                System.out.println("  dispatchers before=" + built + " after=" + after);
+            }            case "dispatcher-churn" -> {
                 final int rounds = args.length > 1 ? Integer.parseInt(args[1]) : 500;
                 final java.lang.management.MemoryMXBean memory = java.lang.management.ManagementFactory.getMemoryMXBean();
                 final java.lang.management.ClassLoadingMXBean classes = java.lang.management.ManagementFactory.getClassLoadingMXBean();
