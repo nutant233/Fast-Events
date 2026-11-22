@@ -9,12 +9,14 @@ Forge 总线上的每次监听器调用都会走到一个生成出来的、完�
 
 | 8 个监听器 | 原生 | 本模组 |
 |---|---|---|
-| `@SubscribeEvent` | 35.8 ns | **10.5 ns** |
-| `addListener(consumer)` | 19.4 ns | **6.7 ns** |
-| `new Event()`（逃逸） | — | ~2.4 ns |
+| `@SubscribeEvent` | 35.8 ns | **5.1 ns** |
+| `addListener(consumer)` | 19.4 ns | **7.1 ns** |
+| `new Event()`（逃逸） | — | ~2.3 ns |
 
-每次 post，环境为 NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5、Java 21。consumer 监听器在生成器改为直接调用
-注册的 consumer、而不是走总线的包装类之前是 10.7 ns。
+每次 post，环境为 NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5、Java 21。`@SubscribeEvent` 的处理方法在是 public
+方法且所在类 public 时由生成类直接调用（不再经过总线的 MethodHandle 处理链），consumer 也直接调用注册的 consumer。
+带 `hasListeners` 守卫的调用点（没人监听时连事件对象都不创建）每次多约 0.6 ns；`-Dfastevents.guard=false` 可以把它
+退化成普通 post。
 
 ## 实现原理
 

@@ -9,12 +9,15 @@ megamorphic loop, and event objects are not even constructed when nobody listens
 
 | 8 listeners | vanilla | this mod |
 |---|---|---|
-| `@SubscribeEvent` | 35.8 ns | **10.5 ns** |
-| `addListener(consumer)` | 19.4 ns | **6.7 ns** |
-| `new Event()` (escaped) | — | ~2.4 ns |
+| `@SubscribeEvent` | 35.8 ns | **5.1 ns** |
+| `addListener(consumer)` | 19.4 ns | **7.1 ns** |
+| `new Event()` (escaped) | — | ~2.3 ns |
 
-Per post, on NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5, Java 21. Consumer listeners used to cost 10.7 ns here
-before the dispatcher started calling the registered consumer directly instead of the bus's wrapper.
+Per post, on NeoForge 21.1.234 / `net.neoforged:bus` 8.0.5, Java 21. The generated dispatcher calls the listener
+method itself for `@SubscribeEvent` handlers (public methods in public classes) instead of the bus's MethodHandle
+handler, and calls consumers directly instead of the bus's wrapper. Guarded call sites (`if (hasListeners(...))`,
+which skip building the event when nobody listens) cost about 0.6 ns extra; `-Dfastevents.guard=false` turns them
+into plain posts.
 
 ## How it works
 

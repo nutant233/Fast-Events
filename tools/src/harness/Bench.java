@@ -36,6 +36,18 @@ public final class Bench {
                     }
                 });
             }
+                        case "subscribe-guard" -> {
+                bus.register(new SubscribeBench());
+                final FastDispatch.Holder holder = FastDispatch.holder();
+                if (!FastDispatch.hasListeners(bus, SubscribeEventHolder.class, holder)) {
+                    throw new IllegalStateException("guard returned false");
+                }
+                time("guarded call site (8 @SubscribeEvent)", n, () -> {
+                    if (FastDispatch.hasListeners(bus, SubscribeEventHolder.class, holder)) {
+                        FastDispatch.post(bus, new SubscribeEventHolder(), holder);
+                    }
+                });
+            }
             case "subscribe-native", "subscribe-fast" -> {
                 bus.register(new SubscribeBench());
                 final FastDispatch.Holder holder = FastDispatch.holder();
