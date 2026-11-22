@@ -14,6 +14,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -79,60 +80,93 @@ public final class FastDispatch {
 
     public static void register(final IEventBus bus, final Object target) {
         bus.register(target);
-        invalidate();
+        invalidateSubscriptions(bus, target);
     }
 
     public static void unregister(final IEventBus bus, final Object target) {
         bus.unregister(target);
-        invalidate();
+        invalidateSubscriptions(bus, target);
+    }
+
+    /**
+     * Drops only the dispatchers of the event classes the object subscribes to. A registration that cannot be
+     * attributed to any class falls back to a soft invalidation, which keeps every generated dispatcher.
+     */
+    private static void invalidateSubscriptions(final IEventBus bus, final Object target) {
+        boolean targeted = false;
+        for (final Class<? extends Event> type : subscribedTypes(target.getClass())) {
+            invalidateClass(type, bus);
+            targeted = true;
+        }
+        if (!targeted) {
+            invalidateSoft();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Class<? extends Event>> subscribedTypes(final Class<?> owner) {
+        final List<Class<? extends Event>> types = new ArrayList<>();
+        for (Class<?> current = owner; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (final java.lang.reflect.Method method : current.getDeclaredMethods()) {
+                if (method.getParameterCount() != 1
+                        || !method.isAnnotationPresent(net.neoforged.bus.api.SubscribeEvent.class)) {
+                    continue;
+                }
+                final Class<?> parameter = method.getParameterTypes()[0];
+                if (Event.class.isAssignableFrom(parameter)) {
+                    types.add((Class<? extends Event>) parameter);
+                }
+            }
+        }
+        return types;
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final Consumer<T> consumer) {
         bus.addListener(consumer);
-        invalidate();
+        invalidateSoft();
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final Class<T> eventType,
                                                      final Consumer<T> consumer) {
         bus.addListener(eventType, consumer);
-        invalidate();
+        invalidateClass(eventType, bus);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final Consumer<T> consumer) {
         bus.addListener(priority, consumer);
-        invalidate();
+        invalidateSoft();
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final Class<T> eventType, final Consumer<T> consumer) {
         bus.addListener(priority, eventType, consumer);
-        invalidate();
+        invalidateClass(eventType, bus);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final boolean receiveCanceled, final Consumer<T> consumer) {
         bus.addListener(priority, receiveCanceled, consumer);
-        invalidate();
+        invalidateSoft();
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final EventPriority priority,
                                                      final boolean receiveCanceled, final Class<T> eventType,
                                                      final Consumer<T> consumer) {
         bus.addListener(priority, receiveCanceled, eventType, consumer);
-        invalidate();
+        invalidateClass(eventType, bus);
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final boolean receiveCanceled,
                                                      final Consumer<T> consumer) {
         bus.addListener(receiveCanceled, consumer);
-        invalidate();
+        invalidateSoft();
     }
 
     public static <T extends Event> void addListener(final IEventBus bus, final boolean receiveCanceled,
                                                      final Class<T> eventType, final Consumer<T> consumer) {
         bus.addListener(receiveCanceled, eventType, consumer);
-        invalidate();
+        invalidateClass(eventType, bus);
     }
 
     private static Dispatcher peek(final IEventBus bus, final Event event, final Holder holder) {
@@ -260,8 +294,60 @@ public final class FastDispatch {
         DISPATCHERS.clear();
     }
 
+    /**
+     * Drops the per-call-site cache but keeps the generated dispatcher classes: a registration we cannot
+     * attribute to an event class only costs a re-check of the listener array on the next post, never a rebuild
+     * of every generated dispatcher.
+     */
+    static void invalidateSoft() {
+        if (!anyCached) {
+            return;
+        }
+        synchronized (HOLDERS) {
+            for (final Holder holder : HOLDERS) {
+                clear(holder);
+            }
+        }
+    }
+
+    /** Drops only the caches of dispatchers handling {@code type}. */
+    static void invalidateClass(final Class<?> type, final IEventBus bus) {
+        if (!anyCached) {
+            return;
+        }
+        synchronized (HOLDERS) {
+            for (final Holder holder : HOLDERS) {
+                if (matches(holder, type)) {
+                    clear(holder);
+                }
+            }
+        }
+        DISPATCHERS.keySet().removeIf(key -> key.bus == bus && type.isAssignableFrom(key.type));
+    }
+
     private static void clear(final Holder holder) {
         holder.cache = null;
+    }
+
+    private static boolean matches(final Holder holder, final Class<?> type) {
+        final Object cache = holder.cache;
+        if (cache == null) {
+            return false;
+        }
+        if (cache instanceof Binding) {
+            for (Binding current = (Binding) cache; current != null; current = current.next) {
+                if (current.type != null && type.isAssignableFrom(current.type)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (final Binding binding : ((ConcurrentHashMap<Class<?>, Binding>) cache).values()) {
+            if (binding.type != null && type.isAssignableFrom(binding.type)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Dispatcher resolve(final IEventBus bus, final Class<?> type, final Holder holder) {
