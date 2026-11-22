@@ -211,7 +211,7 @@ public final class FastDispatch {
         final Class<T> eventType = resolveType(consumer);
         if (eventType == null) {
             bus.addListener(priority, receiveCancelled, consumer);
-            invalidate();
+            invalidateSoft();
             return;
         }
         addListener(bus, priority, receiveCancelled, eventType, consumer);
@@ -233,7 +233,12 @@ public final class FastDispatch {
             }
         }
         bus.addListener(priority, receiveCancelled, eventType, consumer);
-        invalidate();
+        final int id = busId(bus);
+        if (id >= 0) {
+            invalidateClass(eventType, id);
+        } else {
+            invalidateSoft();
+        }
     }
 
     public static <T extends GenericEvent<? extends F>, F> void addGenericListener(final IEventBus bus,
@@ -257,7 +262,7 @@ public final class FastDispatch {
         final Class<T> eventType = resolveType(consumer);
         if (eventType == null) {
             bus.addGenericListener(filter, priority, receiveCancelled, consumer);
-            invalidate();
+            invalidateSoft();
             return;
         }
         addGenericListener(bus, filter, priority, receiveCancelled, eventType, consumer);
@@ -282,7 +287,29 @@ public final class FastDispatch {
             }
         }
         bus.addGenericListener(filter, priority, receiveCancelled, eventType, consumer);
-        invalidate();
+        final int id = busId(bus);
+        if (id >= 0) {
+            invalidateClass(eventType, id);
+        } else {
+            invalidateSoft();
+        }
+    }
+
+    public static void register(final IEventBus bus, final Object target) {
+        bus.register(target);
+        final int id = busId(bus);
+        if (id < 0) {
+            invalidateSoft();
+            return;
+        }
+        boolean targeted = false;
+        for (final Class<? extends Event> type : subscribedTypes(target.getClass())) {
+            invalidateClass(type, id);
+            targeted = true;
+        }
+        if (!targeted) {
+            invalidateSoft();
+        }
     }
 
     public static void unregister(final IEventBus bus, final Object object) {
@@ -300,7 +327,7 @@ public final class FastDispatch {
         }
         bus.unregister(object);
         if (id < 0) {
-            invalidate();
+            invalidateSoft();
             return;
         }
         // the object's own @SubscribeEvent methods are gone now: drop only the dispatchers of their classes
@@ -309,7 +336,7 @@ public final class FastDispatch {
             targeted = true;
         }
         if (!targeted) {
-            invalidate();
+            invalidateSoft();
         }
     }
 
@@ -382,6 +409,22 @@ public final class FastDispatch {
             }
         }
         DISPATCHERS.clear();
+    }
+
+    /**
+     * Drops the per-call-site cache but keeps the generated dispatcher classes. Used when a registration we
+     * cannot attribute to an event class happens: the next post re-checks the listener array and only rebuilds
+     * a dispatcher when the array really changed, so the generated classes are not thrown away.
+     */
+    static void invalidateSoft() {
+        if (!anyCached) {
+            return;
+        }
+        synchronized (HOLDERS) {
+            for (final Holder holder : HOLDERS) {
+                clear(holder);
+            }
+        }
     }
 
     static void invalidateClass(final Class<?> type, final int busId) {
