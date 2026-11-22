@@ -321,7 +321,7 @@ public final class PostCallRewriter {
         if ("addGenericListener".equals(call.name)) {
             return matches(ADD_GENERIC_LISTENER_DESCS, call.desc);
         }
-        if ("unregister".equals(call.name)) {
+        if ("unregister".equals(call.name) || "register".equals(call.name)) {
             return UNREGISTER_DESC.equals(call.desc);
         }
         return false;
