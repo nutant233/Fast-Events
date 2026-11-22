@@ -38,7 +38,7 @@ public final class Harness {
 
         final int originalMaxStack = maxStack(before, "postNew");
         final PostCallRewriter rewriter = new PostCallRewriter();
-        check(rewriter.rewrite(before) == 10, "应改写 6 个 post + 2 个 addListener + 1 个 addGenericListener + 1 个 unregister，实际 "
+        check(rewriter.rewrite(before) == 11, "应改写 6 个 post + 2 个 addListener + 1 个 addGenericListener + 1 个 register + 1 个 unregister，实际 "
                 + (rewriter.postSites + rewriter.hookSites));
 
         check(rewriter.guardSites == 3, "应有 2 个调用点插 guard，实际 " + rewriter.guardSites);
