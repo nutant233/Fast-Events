@@ -51,14 +51,12 @@ public final class FastDispatch {
             missingHolder();
             return true;
         }
-        Dispatcher dispatcher = lookup(holder, type);
-        if (dispatcher == null) {
-            dispatcher = resolve(bus, type, holder);
-            if (dispatcher == null) {
-                return true;
-            }
+        final Binding cached = lookup(holder, type);
+        if (cached != null) {
+            return cached.dispatcher != Dispatcher.EMPTY;
         }
-        return dispatcher != Dispatcher.EMPTY;
+        final Dispatcher dispatcher = resolve(bus, type, holder);
+        return dispatcher == null || dispatcher != Dispatcher.EMPTY;
     }
 
     public static <T extends Event> T post(final IEventBus bus, final T event, final Holder holder) {
@@ -138,16 +136,15 @@ public final class FastDispatch {
             return null;
         }
         final Class<?> type = event.getClass();
-        Dispatcher dispatcher = lookup(holder, type);
-        if (dispatcher == null) {
-            if (AUDIT && holder.dispatcher != null) {
-                LOGGER.warn("[FastEvents] dispatcher rebound from {} to {}", holder.type, type);
+        final Binding current = holder.binding;
+        final Binding cached = current == null ? null : current.find(type);
+        if (cached == null) {
+            if (AUDIT && current != null) {
+                LOGGER.warn("[FastEvents] dispatcher rebound from {} to {}", current.type, type);
             }
-            dispatcher = resolve(bus, type, holder);
-        } else if (AUDIT) {
-            dispatcher = audit(bus, type, holder, dispatcher);
+            return resolve(bus, type, holder);
         }
-        return dispatcher;
+        return AUDIT ? audit(bus, type, holder, cached) : cached.dispatcher;
     }
 
     private static void missingHolder() {
@@ -159,64 +156,30 @@ public final class FastDispatch {
                 new Throwable("holder missing"));
     }
 
-    private static Dispatcher lookup(final Holder holder, final Class<?> type) {
-        if (holder.dispatcher != null && holder.type == type) {
-            return holder.dispatcher;
-        }
-        final Class<?>[] restType = holder.restType;
-        if (restType == null) {
-            return null;
-        }
-        final int size = holder.size;
-        for (int i = 0; i < size; i++) {
-            if (restType[i] == type) {
-                return holder.restDispatcher[i];
-            }
-        }
-        return null;
+    /** The binding this call site has cached for {@code type}, or null. */
+    private static Binding lookup(final Holder holder, final Class<?> type) {
+        final Binding current = holder.binding;
+        return current == null ? null : current.find(type);
     }
 
-    private static void store(final Holder holder, final Class<?> type, final EventListener[] original,
-                              final Dispatcher dispatcher) {
-        final Class<?> previousType = holder.type;
-        final EventListener[] previousOriginal = holder.original;
-        final Dispatcher previous = holder.dispatcher;
-        holder.type = type;
-        holder.original = original;
-        holder.dispatcher = dispatcher;
-        if (previous == null) {
-            return;
-        }
-        final int size = holder.size;
-        Class<?>[] restType = holder.restType;
-        if (restType == null) {
-            holder.restType = restType = new Class<?>[3];
-            holder.restDispatcher = new Dispatcher[3];
-            holder.restOriginal = new EventListener[3][];
-        } else if (size == restType.length) {
-            final int grown = size + 3;
-            holder.restType = restType = java.util.Arrays.copyOf(restType, grown);
-            holder.restDispatcher = java.util.Arrays.copyOf(holder.restDispatcher, grown);
-            holder.restOriginal = java.util.Arrays.copyOf(holder.restOriginal, grown);
-        }
-        restType[size] = previousType;
-        holder.restDispatcher[size] = previous;
-        holder.restOriginal[size] = previousOriginal;
-        holder.size = size + 1;
+    /**
+     * Publishes a freshly built binding. The snapshot is immutable and swapped in through a single volatile
+     * write, so a post from another thread either sees the previous snapshot, which makes it resolve again,
+     * or the new one. It can never observe a half-updated cache, which is what produced
+     * ArrayIndexOutOfBoundsException and mis-dispatches before.
+     */
+    private static void publish(final Holder holder, final Class<?> type, final EventListener[] original,
+                                final Dispatcher dispatcher) {
+        final Binding current = holder.binding;
+        holder.binding = current == null
+                ? new Binding(type, original, dispatcher, null)
+                : current.push(type, original, dispatcher);
     }
 
-    private static EventListener[] originalOf(final Holder holder, final Dispatcher dispatcher) {
-        if (dispatcher == holder.dispatcher) {
-            return holder.original == null ? EMPTY : holder.original;
-        }
-        final Dispatcher[] restDispatcher = holder.restDispatcher;
-        if (restDispatcher != null) {
-            final int size = holder.size;
-            for (int i = 0; i < size; i++) {
-                if (restDispatcher[i] == dispatcher) {
-                    final EventListener[] original = holder.restOriginal[i];
-                    return original == null ? EMPTY : original;
-                }
+    private static EventListener[] originalOf(final Binding binding, final Dispatcher dispatcher) {
+        for (Binding current = binding; current != null; current = current.next) {
+            if (current.dispatcher == dispatcher) {
+                return current.original == null ? EMPTY : current.original;
             }
         }
         return EMPTY;
@@ -226,7 +189,7 @@ public final class FastDispatch {
                                         final Dispatcher dispatcher, final Dispatcher.Failure failure) {
         final IEventExceptionHandler handler = Access.exceptionHandler(bus);
         if (handler != null) {
-            handler.handleException(bus, event, originalOf(holder, dispatcher), failure.index, failure.getCause());
+            handler.handleException(bus, event, originalOf(holder.binding, dispatcher), failure.index, failure.getCause());
         }
         FastDispatch.sneakyThrow(failure.getCause());
     }
@@ -249,13 +212,7 @@ public final class FastDispatch {
     }
 
     private static void clear(final Holder holder) {
-        holder.type = null;
-        holder.original = null;
-        holder.dispatcher = null;
-        holder.restType = null;
-        holder.restDispatcher = null;
-        holder.restOriginal = null;
-        holder.size = 0;
+        holder.binding = null;
     }
 
     private static Dispatcher resolve(final IEventBus bus, final Class<?> type, final Holder holder) {
@@ -277,16 +234,16 @@ public final class FastDispatch {
                 }
             }
         }
-        store(holder, type, original, entry.dispatcher);
+        publish(holder, type, original, entry.dispatcher);
         anyCached = true;
         return entry.dispatcher;
     }
 
     private static Dispatcher audit(final IEventBus bus, final Class<?> type, final Holder holder,
-                                    final Dispatcher cached) {
-        final EventListener[] original = originalOf(holder, cached);
+                                    final Binding cached) {
+        final EventListener[] original = cached.original == null ? EMPTY : cached.original;
         if (original.length == 0) {
-            return cached;
+            return cached.dispatcher;
         }
         final EventListener[] current = Access.listeners(bus, type);
         if (current != original) {
@@ -294,23 +251,77 @@ public final class FastDispatch {
                     + " (" + original.length + " -> " + (current == null ? -1 : current.length)
                     + "); late registration detected");
             final Dispatcher fresh = resolve(bus, type, holder);
-            return fresh == null ? cached : fresh;
+            return fresh == null ? cached.dispatcher : fresh;
         }
-        return cached;
+        return cached.dispatcher;
     }
 
     public static int debugDispatchers() {
         return DISPATCHERS.size();
     }
 
+    /**
+     * One call site's cache: a single immutable snapshot, replaced atomically. See {@link #publish} for why
+     * it must not be mutated in place.
+     */
     public static final class Holder {
-        Class<?> type;
-        EventListener[] original;
-        Dispatcher dispatcher;
-        Class<?>[] restType;
-        Dispatcher[] restDispatcher;
-        EventListener[][] restOriginal;
-        int size;
+        volatile Binding binding;
+    }
+
+    /** Immutable: what one call site resolved for one event class, plus the other classes it saw earlier. */
+    static final class Binding {
+        /** Enough for the handful of event classes a single call site realistically posts. */
+        static final int MAX_CHAIN = 8;
+
+        final Class<?> type;
+        final EventListener[] original;
+        final Dispatcher dispatcher;
+        final Binding next;
+
+        Binding(final Class<?> type, final EventListener[] original, final Dispatcher dispatcher, final Binding next) {
+            this.type = type;
+            this.original = original;
+            this.dispatcher = dispatcher;
+            this.next = next;
+        }
+
+        Binding find(final Class<?> type) {
+            for (Binding current = this; current != null; current = current.next) {
+                if (current.type == type) {
+                    return current;
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Returns a new snapshot with {@code type} in front. The previous entries are copied so the result is
+         * fully immutable; entries beyond {@link #MAX_CHAIN} are dropped and simply re-resolve later.
+         */
+        Binding push(final Class<?> type, final EventListener[] original, final Dispatcher dispatcher) {
+            if (this.type == type && this.original == original && this.dispatcher == dispatcher) {
+                return this;
+            }
+            final int capacity = MAX_CHAIN - 1;
+            final Class<?>[] types = new Class<?>[capacity];
+            final EventListener[][] originals = new EventListener[capacity][];
+            final Dispatcher[] dispatchers = new Dispatcher[capacity];
+            int count = 0;
+            for (Binding current = this; current != null && count < capacity; current = current.next) {
+                if (current.type == type) {
+                    continue;
+                }
+                types[count] = current.type;
+                originals[count] = current.original;
+                dispatchers[count] = current.dispatcher;
+                count++;
+            }
+            Binding result = new Binding(type, original, dispatcher, null);
+            for (int i = count - 1; i >= 0; i--) {
+                result = new Binding(types[i], originals[i], dispatchers[i], result);
+            }
+            return result;
+        }
     }
 
     private static final class Entry {

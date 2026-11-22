@@ -60,6 +60,11 @@ Write-Host "running harness (bus 8.0.5, -Dfastevents.guard=false) ..."
 $rc3 = $LASTEXITCODE
 
 Write-Host ""
+Write-Host "running concurrency check (posts from several threads while registrations clear the cache) ..."
+& java -cp "$cpRun;$out" harness.RaceCheck
+$rc4 = $LASTEXITCODE
+
+Write-Host ""
 Write-Host "bench（一个用例一个 JVM）:"
 $cases = @('post-native','post-fast','subscribe-native','subscribe-fast','mixed-shared','mixed-split','alloc','rewrite')
 foreach ($case in $cases) {
@@ -67,5 +72,5 @@ foreach ($case in $cases) {
     & java -cp "$cpRun;$out" harness.Bench $case | Where-Object { $_ -match 'ns/post' }
 }
 
-Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3)
-exit ($rc1 -bor $rc2 -bor $rc3)
+Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3 + " rc4=" + $rc4)
+exit ($rc1 -bor $rc2 -bor $rc3 -bor $rc4)
