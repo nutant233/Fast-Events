@@ -71,6 +71,11 @@ Write-Host "running harness (eventbus 6.0.3, -Deventbus.namelisteners=true) ..."
 $rc3 = $LASTEXITCODE
 
 Write-Host ""
+Write-Host "running concurrency check (posts from several threads while registrations clear the cache) ..."
+& java -cp "$cp;$out" harness.RaceCheck
+$rc4 = $LASTEXITCODE
+
+Write-Host ""
 Write-Host "bench（一个用例一个 JVM）:"
 $cases = @('eight-native','eight-fast','eight-markers','eight-dispatch-only','alloc','asm-native','asm-fast','arg1-native','arg1-fast','generic-native','generic-fast','alt-native','alt-shared','alt-split','alt3-native','alt3-shared','alt3-split','asm-parse','asm-wrapper-gen','lambda-gen','unregister-all','unregister-one')
 foreach ($c in $cases) {
@@ -78,5 +83,5 @@ foreach ($c in $cases) {
     & java -cp "$cp;$out" harness.Bench $c | Where-Object { $_ -match 'ns/' }
 }
 
-Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3)
-exit ($rc1 -bor $rc2 -bor $rc3)
+Write-Host ("rc1=" + $rc1 + " rc2=" + $rc2 + " rc3=" + $rc3 + " rc4=" + $rc4)
+exit ($rc1 -bor $rc2 -bor $rc3 -bor $rc4)
