@@ -352,9 +352,14 @@ public final class FastDispatch {
                         && !method.isAnnotationPresent(SubscribeEvent.class)) {
                     continue;
                 }
-                final Class<?> parameter = method.getParameterTypes()[0];
-                if (Event.class.isAssignableFrom(parameter)) {
-                    types.add((Class<? extends Event>) parameter);
+                try {
+                    final Class<?> parameter = method.getParameterTypes()[0];
+                    if (Event.class.isAssignableFrom(parameter)) {
+                        types.add((Class<? extends Event>) parameter);
+                    }
+                } catch (final Throwable ignored) {
+                    // a client-only event parameter cannot be loaded on a dedicated server, so it stays
+                    // unattributed and the caller falls back to the soft invalidation
                 }
             }
         }
