@@ -240,6 +240,19 @@ public final class Harness {
                 "注销一个事件类不应清空全部 dispatcher，注销前 " + cachedBefore + " 注销后 "
                         + FastDispatch.debugDispatchers());
 
+        // a listener object registered after the "nobody listens" answer was cached must still be dispatched
+        final FastDispatch.Holder lateRegisterHolder = FastDispatch.holder();
+        check(!FastDispatch.hasListeners(bus, LateEvent.class, lateRegisterHolder), "注册前应判定为无监听器");
+        FastDispatch.post(bus, new LateEvent(), lateRegisterHolder);
+        final LateSubscriber lateSubscriber = new LateSubscriber();
+        FastDispatch.register(bus, lateSubscriber);
+        check(FastDispatch.hasListeners(bus, LateEvent.class, lateRegisterHolder), "register 之后应判定为有监听器");
+        FastDispatch.post(bus, new LateEvent(), lateRegisterHolder);
+        check(lateSubscriber.hits == 1, "register 注册的监听器应收到事件，实际 " + lateSubscriber.hits);
+        FastDispatch.unregister(bus, lateSubscriber);
+        FastDispatch.post(bus, new LateEvent(), lateRegisterHolder);
+        check(lateSubscriber.hits == 1, "unregister 之后不应再收到，实际 " + lateSubscriber.hits);
+
         System.out.println();
         final io.github.nutant.fastevents.FastEventsLocator locator =
                 new io.github.nutant.fastevents.FastEventsLocator();
@@ -546,4 +559,22 @@ public final class Harness {
             System.out.println("  [ok]   " + message);
         }
     }
-}
+
+    public static final class LateEvent extends net.minecraftforge.eventbus.api.Event {
+        public LateEvent() {
+        }
+
+        @Override
+        public boolean isCancelable() {
+            return false;
+        }
+    }
+
+    public static final class LateSubscriber {
+        int hits;
+
+        @net.minecraftforge.eventbus.api.SubscribeEvent
+        public void onLate(final LateEvent event) {
+            hits++;
+        }
+    }}
