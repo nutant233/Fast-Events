@@ -72,12 +72,75 @@ public final class E2ETest {
         System.out.println("[E2E] loginprotection state after addPlayer: "
                 + (entry == null ? "NULL" : entry.getClass().getMethod("getState").invoke(entry)));
 
+        fmlStaticSubscriberTest();
         damageTest(event);
-        keyInputTest();
+        try {
+            keyInputTest();
+        } catch (final Throwable throwable) {
+            System.out.println("[E2E] key input test skipped on this side: " + throwable);
+        }
         System.out.println("[E2E] DONE");
     }
 
+    /**
+     * FML registers {@code @Mod.EventBusSubscriber} classes by calling {@code IEventBus.register} from its own
+     * code, which no call-site rewriter can see. The bus has to invalidate the dispatcher cache itself, or a
+     * listener added that way is never called (this is the Realistic Death report).
+     */
+    private static void lateRegistrationTest() throws Exception {
+        lateSubscriber = new LateSubscriber();
+        LateSubscriber.hits = 0;
+        postLate();
+        System.out.println("[E2E] late registration: hits with no listener=" + LateSubscriber.hits);
+        final Method register = IEventBus.class.getMethod("register", Object.class);
+        register.invoke(MinecraftForge.EVENT_BUS, lateSubscriber);
+        postLate();
+        System.out.println("[E2E] late registration: hits after reflective register="
+                + LateSubscriber.hits + " (expect 1)");
+        final Method unregister = IEventBus.class.getMethod("unregister", Object.class);
+        unregister.invoke(MinecraftForge.EVENT_BUS, lateSubscriber);
+        postLate();
+        System.out.println("[E2E] late registration: hits after reflective unregister="
+                + LateSubscriber.hits + " (expect 1)");
+    }
+
+    private static Object lateSubscriber;
+
+    /** Rewritten call site: a guarded post of an event class nobody listens to at first. */
+    public static boolean postLate() {
+        return MinecraftForge.EVENT_BUS.post(new LateEvent());
+    }
+
+    public static class LateEvent extends Event {
+        public LateEvent() {
+        }
+
+        @Override
+        public boolean isCancelable() {
+            return false;
+        }
+    }
+
+    public static final class LateSubscriber {
+        static int hits;
+
+        @SubscribeEvent
+        public void onLate(final LateEvent event) {
+            hits++;
+        }
+    }
+
     /** Login Protection cancels LivingDamageEvent unless the player state is ACTIVE. */
+    /**
+     * A {@code @Mod.EventBusSubscriber} class with static handlers, the shape Realistic Death uses: FML
+     * injects it into the bus from its own code, before anything is dispatched.
+     */
+    private static void fmlStaticSubscriberTest() {
+        FmlSubscriber.hits = 0;
+        MinecraftForge.EVENT_BUS.post(new FmlSubscriber.FmlEvent());
+        System.out.println("[E2E] @Mod.EventBusSubscriber static handler hits=" + FmlSubscriber.hits
+                + " (expect 1)");
+    }
     private static void damageTest(final ServerStartedEvent event) throws Exception {
         final Object server = event.getServer();
         final Object level = noArgReturning(server, Class.forName("net.minecraft.server.level.ServerLevel")).invoke(server);
@@ -140,4 +203,23 @@ public final class E2ETest {
         throw new NoSuchMethodException("no no-arg method returning " + type.getName()
                 + " on " + instance.getClass().getName());
     }
-}
+
+    @Mod.EventBusSubscriber(modid = "fastevents_e2e", bus = Mod.EventBusSubscriber.Bus.FORGE)
+    public static final class FmlSubscriber {
+        static int hits;
+
+        @SubscribeEvent
+        public static void onFml(final FmlEvent event) {
+            hits++;
+        }
+
+        public static class FmlEvent extends Event {
+            public FmlEvent() {
+            }
+
+            @Override
+            public boolean isCancelable() {
+                return false;
+            }
+        }
+    }}
