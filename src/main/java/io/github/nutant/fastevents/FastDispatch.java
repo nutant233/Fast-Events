@@ -347,16 +347,17 @@ public final class FastDispatch {
         final List<Class<? extends Event>> types = new ArrayList<>();
         for (Class<?> current = owner; current != null && current != Object.class; current = current.getSuperclass()) {
             for (final java.lang.reflect.Method method : current.getDeclaredMethods()) {
-                if (method.getParameterCount() != 1) {
+                if (method.getParameterCount() != 1 || !method.isAnnotationPresent(SubscribeEvent.class)) {
                     continue;
                 }
-                if (!method.isAnnotationPresent(SubscribeEvent.class)
-                        && !method.isAnnotationPresent(SubscribeEvent.class)) {
-                    continue;
-                }
-                final Class<?> parameter = method.getParameterTypes()[0];
-                if (Event.class.isAssignableFrom(parameter)) {
-                    types.add((Class<? extends Event>) parameter);
+                try {
+                    final Class<?> parameter = method.getParameterTypes()[0];
+                    if (Event.class.isAssignableFrom(parameter)) {
+                        types.add((Class<? extends Event>) parameter);
+                    }
+                } catch (final Throwable ignored) {
+                    // a client-only event parameter cannot be loaded on a dedicated server, so it stays
+                    // unattributed and the caller falls back to the soft invalidation
                 }
             }
         }
