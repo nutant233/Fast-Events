@@ -139,9 +139,14 @@ public final class FastDispatch {
                         || !method.isAnnotationPresent(net.neoforged.bus.api.SubscribeEvent.class)) {
                     continue;
                 }
-                final Class<?> parameter = method.getParameterTypes()[0];
-                if (Event.class.isAssignableFrom(parameter)) {
-                    types.add((Class<? extends Event>) parameter);
+                try {
+                    final Class<?> parameter = method.getParameterTypes()[0];
+                    if (Event.class.isAssignableFrom(parameter)) {
+                        types.add((Class<? extends Event>) parameter);
+                    }
+                } catch (final Throwable ignored) {
+                    // an event class that cannot be loaded here stays unattributed, which only means the
+                    // caller falls back to the soft invalidation
                 }
             }
         }
